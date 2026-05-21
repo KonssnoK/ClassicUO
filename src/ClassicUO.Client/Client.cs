@@ -190,6 +190,7 @@ namespace ClassicUO
             filesOverride.Load();
             FileManager = new UOFileManager(clientVersion, clientPath, filesOverride);
             FileManager.HDArtEnabled = Settings.GlobalSettings.EnableHDArt;
+            FileManager.HDAnimationsEnabled = Settings.GlobalSettings.EnableHDAnimations;
             FileManager.Load(Settings.GlobalSettings.UseVerdata, Settings.GlobalSettings.Language, Settings.GlobalSettings.MapsLayouts);
 
             StaticFilters.Load(FileManager.TileData);

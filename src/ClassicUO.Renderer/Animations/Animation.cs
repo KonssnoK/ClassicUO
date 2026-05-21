@@ -370,15 +370,15 @@ namespace ClassicUO.Renderer.Animations
 
                     _picker.Set(key, frame.Width, frame.Height, frame.Pixels);
 
-                    spriteInfo.Center.X = frame.CenterX;
-                    spriteInfo.Center.Y = frame.CenterY;
+                    spriteInfo.Center.X = frame.LogicalCenterX;
+                    spriteInfo.Center.Y = frame.LogicalCenterY;
                     spriteInfo.Texture = _atlas.AddSprite(
                         frame.Pixels.AsSpan(),
                         frame.Width,
                         frame.Height,
                         out spriteInfo.UV
                     );
-                    spriteInfo.LogicalSize = new Microsoft.Xna.Framework.Point(frame.Width, frame.Height);
+                    spriteInfo.LogicalSize = new Microsoft.Xna.Framework.Point(frame.LogicalWidth, frame.LogicalHeight);
                 }
             }
 

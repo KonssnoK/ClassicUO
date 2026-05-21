@@ -27,6 +27,11 @@ namespace ClassicUO.Assets
 
         private readonly UOFileMul[] _files = new UOFileMul[10];
         private readonly UOFileUop[] _filesUop = new UOFileUop[10];
+        private readonly UOFileUop[] _hdFiles = new UOFileUop[10];      // HD sidecars for anim*.mul (UOP-packed, CUHD chunks)
+        private readonly UOFileUop[] _hdFilesUop = new UOFileUop[10];   // HD sidecars for AnimationFrame*.uop
+
+        private const uint HD_ANIM_MAGIC = 0x44485543u; // 'CUHD' little-endian
+        private const int HD_ANIM_SCALE = 4;
 
         private readonly Dictionary<ushort, Dictionary<ushort, EquipConvData>> _equipConv = new Dictionary<ushort, Dictionary<ushort, EquipConvData>>();
         private readonly Dictionary<int, MobTypeInfo> _mobTypes = new Dictionary<int, MobTypeInfo>();
@@ -62,6 +67,18 @@ namespace ClassicUO.Assets
                 {
                     _files[i] = new UOFileMul(pathmul, pathidx);
                 }
+
+                // HD sidecar for this anim*.mul (UOP-packed, CUHD chunks keyed by build/anim_hd/{file_index}/{slot:08d}.bin).
+                if (FileManager.HDAnimationsEnabled)
+                {
+                    var hdMulPath = FileManager.GetUOFilePath("anim" + (i == 0 ? string.Empty : (i + 1).ToString()) + "_HD.uop");
+                    if (File.Exists(hdMulPath))
+                    {
+                        // Pattern unused for indexed access (we hash lookup-time strings via TryGetUOPData).
+                        _hdFiles[i] = new UOFileUop(hdMulPath, $"build/anim_hd/{i}/{{0:D8}}.bin");
+                        _hdFiles[i].FillEntries();
+                    }
+                }
             }
 
             if (FileManager.IsUOPInstallation)
@@ -77,6 +94,17 @@ namespace ClassicUO.Assets
                         _filesUop[i] = new UOFileUop(pathuop, "build/animationlegacyframe/{0:D6}/{0:D2}.bin");
                         _filesUop[i].FillEntries();
                         loaduop = true;
+                    }
+
+                    // HD sidecar for AnimationFrame{i+1}.uop.
+                    if (FileManager.HDAnimationsEnabled)
+                    {
+                        var hdUopPath = FileManager.GetUOFilePath($"AnimationFrame{i + 1}_HD.uop");
+                        if (File.Exists(hdUopPath))
+                        {
+                            _hdFilesUop[i] = new UOFileUop(hdUopPath, "build/animationframe_hd/{0:D6}/{0:D2}.bin");
+                            _hdFilesUop[i].FillEntries();
+                        }
                     }
                 }
 
@@ -357,6 +385,7 @@ namespace ClassicUO.Assets
             fileIdx.Read(MemoryMarshal.AsBytes(indicesBuf.AsSpan(0, size)));
 
             var directions = new AnimationDirection[size];
+            uint slotBase = (uint)((ulong)offsetAddress / (ulong)sizeof(AnimIdxBlock));
             for (var i = 0; i < directions.Length; ++i)
             {
                 ref var dir = ref directions[i];
@@ -365,6 +394,7 @@ namespace ClassicUO.Assets
                 dir.Size = index.Size;
                 dir.UncompressedSize = index.Unknown;
                 dir.CompressionType = CompressionType.None;
+                dir.Slot = slotBase + (uint)i;
             }
 
             ArrayPool<AnimIdxBlock>.Shared.Return(indicesBuf);
@@ -1170,6 +1200,150 @@ namespace ClassicUO.Assets
             return 0;
         }
 
+        private bool TryReadHDFrames(
+            UOFileUop hdFile, ulong hash, int directionFilter, AnimationGroupsType type, out Span<FrameInfo> outFrames)
+        {
+            outFrames = Span<FrameInfo>.Empty;
+            if (hdFile == null || !hdFile.TryGetUOPData(hash, out var data))
+                return false;
+
+            // Pull the chunk from the HD UOP, zlib-decompress if needed.
+            hdFile.Seek(data.Offset, SeekOrigin.Begin);
+            var compressed = new byte[data.Length];
+            hdFile.Read(compressed);
+
+            byte[] chunk;
+            if (data.CompressionFlag == CompressionType.Zlib)
+            {
+                chunk = new byte[data.DecompressedLength];
+                if (ZLib.Decompress(compressed, 0, chunk, chunk.Length) != ZLib.ZLibError.Ok)
+                    return false;
+            }
+            else if (data.CompressionFlag == CompressionType.None)
+            {
+                chunk = compressed;
+            }
+            else
+            {
+                return false;
+            }
+
+            // Chunk header: u32 magic, u16 version, u16 kind (0=MUL, 1=UOP), i32 frame_count.
+            if (chunk.Length < 12)
+                return false;
+
+            uint magic = BitConverter.ToUInt32(chunk, 0);
+            if (magic != HD_ANIM_MAGIC)
+                return false;
+            ushort version = BitConverter.ToUInt16(chunk, 4);
+            if (version != 1)
+                return false;
+            ushort kind = BitConverter.ToUInt16(chunk, 6);
+            int frameCount = BitConverter.ToInt32(chunk, 8);
+            if (frameCount <= 0)
+                return false;
+
+            int tableEntrySize = kind == 1 ? 8 : 4;
+            int tableStart = 12;
+            int tableEnd = tableStart + frameCount * tableEntrySize;
+            if (chunk.Length < tableEnd)
+                return false;
+
+            if (kind == 1)
+            {
+                // UOP: one chunk holds all directions × frames for (body, action). Filter by direction.
+                int realFrameCount = type == AnimationGroupsType.Equipment
+                    ? Math.Max(10, (int)Math.Round(frameCount / (float)MAX_DIRECTIONS))
+                    : (int)Math.Round(frameCount / (float)MAX_DIRECTIONS);
+
+                if (_frames == null || realFrameCount > _frames.Length)
+                    _frames = new FrameInfo[realFrameCount];
+                var frames = _frames.AsSpan(0, realFrameCount);
+                frames.Clear();
+                for (int i = 0; i < realFrameCount; i++) frames[i].Num = i;
+
+                for (int i = 0; i < frameCount; i++)
+                {
+                    int entryOffset = tableStart + i * 8;
+                    // u16 group (unused), u16 frame_id, i32 frame_offset
+                    ushort frameId = BitConverter.ToUInt16(chunk, entryOffset + 2);
+                    int frameOffset = BitConverter.ToInt32(chunk, entryOffset + 4);
+
+                    int frameDirection = (frameId - 1) / realFrameCount;
+                    if (frameDirection != directionFilter)
+                        continue;
+
+                    int slot = (frameId - 1) % realFrameCount;
+                    if (slot < 0 || slot >= realFrameCount)
+                        continue;
+                    if (frameOffset == 0)
+                        continue;
+
+                    DecodeHDFrame(chunk, frameOffset, ref frames[slot]);
+                }
+
+                outFrames = frames;
+                return true;
+            }
+            else
+            {
+                // MUL: one chunk = one direction's frames in linear order.
+                if (_frames == null || frameCount > _frames.Length)
+                    _frames = new FrameInfo[frameCount];
+                var frames = _frames.AsSpan(0, frameCount);
+                frames.Clear();
+
+                for (int i = 0; i < frameCount; i++)
+                {
+                    int frameOffset = BitConverter.ToInt32(chunk, tableStart + i * 4);
+                    frames[i].Num = i;
+                    if (frameOffset == 0)
+                        continue;
+                    DecodeHDFrame(chunk, frameOffset, ref frames[i]);
+                }
+
+                outFrames = frames;
+                return true;
+            }
+        }
+
+        private static void DecodeHDFrame(byte[] chunk, int frameOffset, ref FrameInfo frame)
+        {
+            // Per-frame header at frameOffset: i16 center_x, i16 center_y, i16 width, i16 height,
+            // then width*height*4 BGRA bytes. All header fields are HD coords; divide by HD_ANIM_SCALE
+            // for logical values.
+            if (frameOffset < 0 || frameOffset + 8 > chunk.Length)
+                return;
+
+            short cx = BitConverter.ToInt16(chunk, frameOffset);
+            short cy = BitConverter.ToInt16(chunk, frameOffset + 2);
+            short w = BitConverter.ToInt16(chunk, frameOffset + 4);
+            short h = BitConverter.ToInt16(chunk, frameOffset + 6);
+            if (w <= 0 || h <= 0)
+                return;
+
+            int pixelBytes = w * h * 4;
+            if (frameOffset + 8 + pixelBytes > chunk.Length)
+                return;
+
+            frame.CenterX = cx;
+            frame.CenterY = cy;
+            frame.Width = w;
+            frame.Height = h;
+            frame.LogicalCenterX = (short)(cx / HD_ANIM_SCALE);
+            frame.LogicalCenterY = (short)(cy / HD_ANIM_SCALE);
+            frame.LogicalWidth = (short)(w / HD_ANIM_SCALE);
+            frame.LogicalHeight = (short)(h / HD_ANIM_SCALE);
+
+            int wantedPixels = w * h;
+            if (frame.Pixels == null || frame.Pixels.Length < wantedPixels)
+                frame.Pixels = new uint[wantedPixels];
+            else
+                frame.Pixels.AsSpan(0, wantedPixels).Clear();
+
+            Buffer.BlockCopy(chunk, frameOffset + 8, frame.Pixels, 0, pixelBytes);
+        }
+
         public Span<FrameInfo> ReadUOPAnimationFrames(
             ushort animID,
             byte animGroup,
@@ -1179,6 +1353,14 @@ namespace ClassicUO.Assets
             AnimationDirection index
         )
         {
+            // HD sidecar takes precedence when available.
+            if (fileIndex >= 0 && fileIndex < _hdFilesUop.Length && _hdFilesUop[fileIndex] != null)
+            {
+                var hdHash = UOFileUop.CreateHash($"build/animationframe_hd/{animID:D6}/{animGroup:D2}.bin");
+                if (TryReadHDFrames(_hdFilesUop[fileIndex], hdHash, direction, type, out var hdFrames))
+                    return hdFrames;
+            }
+
             if (fileIndex < 0 || fileIndex >= _filesUop.Length)
             {
                 return Span<FrameInfo>.Empty;
@@ -1364,6 +1546,15 @@ namespace ClassicUO.Assets
                 return Span<FrameInfo>.Empty;
             }
 
+            // HD sidecar takes precedence when available.
+            if (fileIndex < _hdFiles.Length && _hdFiles[fileIndex] != null && index.Slot != 0)
+            {
+                var hdHash = UOFileUop.CreateHash($"build/anim_hd/{fileIndex}/{index.Slot:D8}.bin");
+                // MUL chunk = one direction's frames; pass directionFilter=-1 (unused for kind=MUL).
+                if (TryReadHDFrames(_hdFiles[fileIndex], hdHash, -1, AnimationGroupsType.Unknown, out var hdFrames))
+                    return hdFrames;
+            }
+
             if (index.Position == 0 && index.Size == 0)
             {
                 return Span<FrameInfo>.Empty;
@@ -1423,6 +1614,11 @@ namespace ClassicUO.Assets
             frame.CenterY = reader.ReadInt16LE();
             frame.Width = reader.ReadInt16LE();
             frame.Height = reader.ReadInt16LE();
+            // Legacy: logical == physical.
+            frame.LogicalCenterX = frame.CenterX;
+            frame.LogicalCenterY = frame.CenterY;
+            frame.LogicalWidth = frame.Width;
+            frame.LogicalHeight = frame.Height;
 
             if (frame.Width <= 0 || frame.Height <= 0)
             {
@@ -1488,10 +1684,18 @@ namespace ClassicUO.Assets
         public struct FrameInfo
         {
             public int Num;
+            // Physical (atlas) pixel dimensions. Equal to logical for legacy frames, equal to
+            // HD pixel dims (logical * HD_ANIM_SCALE) for HD frames.
             public short CenterX;
             public short CenterY;
             public short Width;
             public short Height;
+            // Logical (pre-upscale) values; the renderer uses these for in-world placement.
+            // Equal to the physical values for legacy frames.
+            public short LogicalCenterX;
+            public short LogicalCenterY;
+            public short LogicalWidth;
+            public short LogicalHeight;
             public uint[] Pixels;
         }
 
@@ -1544,6 +1748,7 @@ namespace ClassicUO.Assets
             public uint Size;
             public uint UncompressedSize;
             public CompressionType CompressionType;
+            public uint Slot; // AnimIdxBlock index within the .idx file (MUL only); used to address HD sidecars.
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]

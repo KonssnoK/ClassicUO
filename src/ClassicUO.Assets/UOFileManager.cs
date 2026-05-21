@@ -54,6 +54,7 @@ namespace ClassicUO.Assets
         public string BasePath { get; }
         public bool IsUOPInstallation { get; private set; }
         public bool HDArtEnabled { get; set; }
+        public bool HDAnimationsEnabled { get; set; }
 
         public AnimationsLoader Animations { get; }
         public AnimDataLoader AnimData { get; }

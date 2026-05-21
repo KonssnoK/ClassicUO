@@ -86,6 +86,8 @@ namespace ClassicUO.Configuration
 
         [JsonPropertyName("enable_hd_art")] public bool EnableHDArt { get; set; }
 
+        [JsonPropertyName("enable_hd_animations")] public bool EnableHDAnimations { get; set; }
+
         [JsonPropertyName("maps_layouts")] public string MapsLayouts { get; set; }
 
         [JsonPropertyName("encryption")] public byte Encryption { get; set; }
