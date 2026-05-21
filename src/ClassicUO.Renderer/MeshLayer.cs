@@ -161,9 +161,12 @@ namespace ClassicUO.Renderer
         /// Does not modify Count — caller is responsible for setting Count after all writes.
         /// </summary>
         public void WriteQuadAt(int index, Texture2D texture, Rectangle sourceRect, int posX, int posY,
-            Vector3 hue, float depth, float uvInset = 0f)
+            Vector3 hue, float depth, float uvInset = 0f, int destWidth = -1, int destHeight = -1)
         {
             ref var vertex = ref Vertices[index];
+
+            int dstW = destWidth < 0 ? sourceRect.Width : destWidth;
+            int dstH = destHeight < 0 ? sourceRect.Height : destHeight;
 
             float sourceX = (sourceRect.X + uvInset) / (float)texture.Width;
             float sourceY = (sourceRect.Y + uvInset) / (float)texture.Height;
@@ -172,12 +175,12 @@ namespace ClassicUO.Renderer
 
             vertex.Position0.X = posX;
             vertex.Position0.Y = posY;
-            vertex.Position1.X = posX + sourceRect.Width;
+            vertex.Position1.X = posX + dstW;
             vertex.Position1.Y = posY;
             vertex.Position2.X = posX;
-            vertex.Position2.Y = posY + sourceRect.Height;
-            vertex.Position3.X = posX + sourceRect.Width;
-            vertex.Position3.Y = posY + sourceRect.Height;
+            vertex.Position2.Y = posY + dstH;
+            vertex.Position3.X = posX + dstW;
+            vertex.Position3.Y = posY + dstH;
 
             vertex.Position0.Z = vertex.Position1.Z = vertex.Position2.Z = vertex.Position3.Z = depth;
 

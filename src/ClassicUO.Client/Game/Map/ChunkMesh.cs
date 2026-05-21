@@ -356,7 +356,8 @@ namespace ClassicUO.Game.Map
                         int idx = _landBuckets.GetNextIndex(artInfo.Texture);
                         land.MeshSpriteIndex = idx;
                         Land.WriteQuadAt(idx, artInfo.Texture, artInfo.UV,
-                            baseX, baseY + (land.Z << 2), hueVec, depth);
+                            baseX, baseY + (land.Z << 2), hueVec, depth,
+                            destWidth: artInfo.LogicalSize.X, destHeight: artInfo.LogicalSize.Y);
                         land.InChunkMesh = true;
                     }
                 }
@@ -368,7 +369,8 @@ namespace ClassicUO.Game.Map
                 {
                     int idx = _landBuckets.GetNextIndex(artInfo.Texture);
                     land.MeshSpriteIndex = idx;
-                    Land.WriteQuadAt(idx, artInfo.Texture, artInfo.UV, baseX, baseY, hueVec, depth);
+                    Land.WriteQuadAt(idx, artInfo.Texture, artInfo.UV, baseX, baseY, hueVec, depth,
+                        destWidth: artInfo.LogicalSize.X, destHeight: artInfo.LogicalSize.Y);
                     land.InChunkMesh = true;
                 }
             }
@@ -432,15 +434,16 @@ namespace ClassicUO.Game.Map
                 return;
 
             ref var artIndex = ref Client.Game.UO.FileManager.Arts.File.GetValidRefEntry(graphic + 0x4000);
-            artIndex.Width = (short)((artInfo.UV.Width >> 1) - 22);
-            artIndex.Height = (short)(artInfo.UV.Height - 44);
+            artIndex.Width = (short)((artInfo.LogicalSize.X >> 1) - 22);
+            artIndex.Height = (short)(artInfo.LogicalSize.Y - 44);
 
             int posX = baseX - artIndex.Width;
             int posY = baseY - artIndex.Height;
 
             int idx = _staticsBuckets.GetNextIndex(artInfo.Texture);
             obj.MeshSpriteIndex = idx;
-            Statics.WriteQuadAt(idx, artInfo.Texture, artInfo.UV, posX, posY, hueVec, depth);
+            Statics.WriteQuadAt(idx, artInfo.Texture, artInfo.UV, posX, posY, hueVec, depth,
+                destWidth: artInfo.LogicalSize.X, destHeight: artInfo.LogicalSize.Y);
             obj.InChunkMesh = true;
         }
 

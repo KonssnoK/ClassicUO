@@ -115,14 +115,17 @@ namespace ClassicUO.Game.GameObjects
             if (artInfo.Texture != null)
             {
                 ref var index = ref Client.Game.UO.FileManager.Arts.File.GetValidRefEntry(graphic + 0x4000);
-                index.Width = (short)((artInfo.UV.Width >> 1) - 22);
-                index.Height = (short)(artInfo.UV.Height - 44);
+                index.Width = (short)((artInfo.LogicalSize.X >> 1) - 22);
+                index.Height = (short)(artInfo.LogicalSize.Y - 44);
 
                 x -= index.Width;
                 y -= index.Height;
 
                 var pos = new Vector2(x, y);
-                var scale = Vector2.One;
+                var hdScale = new Vector2(
+                    (float)artInfo.LogicalSize.X / artInfo.UV.Width,
+                    (float)artInfo.LogicalSize.Y / artInfo.UV.Height);
+                var scale = hdScale;
                 if (isWet)
                 {
                     batcher.Draw(
@@ -139,7 +142,7 @@ namespace ClassicUO.Game.GameObjects
 
                     var sin = (float)Math.Sin(Time.Ticks / 1000f);
                     var cos = (float)Math.Cos(Time.Ticks / 1000f);
-                    scale = new Vector2(1.1f + sin * 0.1f, 1.1f + cos * 0.5f * 0.1f);
+                    scale = new Vector2((1.1f + sin * 0.1f) * hdScale.X, (1.1f + cos * 0.5f * 0.1f) * hdScale.Y);
                 }
 
                 batcher.Draw(
@@ -198,16 +201,16 @@ namespace ClassicUO.Game.GameObjects
             if (artInfo.Texture != null)
             {
                 ref var index = ref Client.Game.UO.FileManager.Arts.File.GetValidRefEntry(graphic + 0x4000);
-                index.Width = (short)((artInfo.UV.Width >> 1) - 22);
-                index.Height = (short)(artInfo.UV.Height - 44);
+                index.Width = (short)((artInfo.LogicalSize.X >> 1) - 22);
+                index.Height = (short)(artInfo.LogicalSize.Y - 44);
 
                 batcher.Draw(
                     artInfo.Texture,
                     new Rectangle(
                         x - index.Width,
                         y - index.Height,
-                        artInfo.UV.Width,
-                        artInfo.UV.Height
+                        artInfo.LogicalSize.X,
+                        artInfo.LogicalSize.Y
                     ),
                     artInfo.UV,
                     hue,
@@ -239,8 +242,8 @@ namespace ClassicUO.Game.GameObjects
             if (artInfo.Texture != null)
             {
                 index = ref Client.Game.UO.FileManager.Arts.File.GetValidRefEntry(graphic + 0x4000);
-                index.Width = (short)((artInfo.UV.Width >> 1) - 22);
-                index.Height = (short)(artInfo.UV.Height - 44);
+                index.Width = (short)((artInfo.LogicalSize.X >> 1) - 22);
+                index.Height = (short)(artInfo.LogicalSize.Y - 44);
 
                 x -= index.Width;
                 y -= index.Height;
@@ -252,7 +255,10 @@ namespace ClassicUO.Game.GameObjects
                     batcher.DrawShadow(artInfo.Texture, pos, artInfo.UV, false, depth + 0.25f);
                 }
 
-                var scale = Vector2.One;
+                var hdScale = new Vector2(
+                    (float)artInfo.LogicalSize.X / artInfo.UV.Width,
+                    (float)artInfo.LogicalSize.Y / artInfo.UV.Height);
+                var scale = hdScale;
                 if (isWet)
                 {
                     batcher.Draw(
@@ -269,7 +275,7 @@ namespace ClassicUO.Game.GameObjects
 
                     var sin = (float)Math.Sin(Time.Ticks / 1000f);
                     var cos = (float)Math.Cos(Time.Ticks / 1000f);
-                    scale = new Vector2(1.1f + sin * 0.1f, 1.1f + cos * 0.5f * 0.1f);
+                    scale = new Vector2((1.1f + sin * 0.1f) * hdScale.X, (1.1f + cos * 0.5f * 0.1f) * hdScale.Y);
                 }
 
                 batcher.Draw(

@@ -35,6 +35,7 @@ namespace ClassicUO.Renderer.Texmaps
                         texmapInfo.Height,
                         out spriteInfo.UV
                     );
+                    spriteInfo.LogicalSize = new Microsoft.Xna.Framework.Point(texmapInfo.Width, texmapInfo.Height);
 
                     _picker.Set(idx, texmapInfo.Width, texmapInfo.Height, texmapInfo.Pixels);
                 }

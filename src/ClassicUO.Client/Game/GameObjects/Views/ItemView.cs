@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-2-Clause
+﻿// SPDX-License-Identifier: BSD-2-Clause
 
 using System;
 using System.Collections.Generic;
@@ -336,14 +336,14 @@ namespace ClassicUO.Game.GameObjects
 
                 if (flipped)
                 {
-                    posX -= spriteInfo.UV.Width - spriteInfo.Center.X;
+                    posX -= spriteInfo.LogicalSize.X - spriteInfo.Center.X;
                 }
                 else
                 {
                     posX -= spriteInfo.Center.X;
                 }
 
-                posY -= spriteInfo.UV.Height + spriteInfo.Center.Y;
+                posY -= spriteInfo.LogicalSize.Y + spriteInfo.Center.Y;
 
                 if (color == 0)
                 {
@@ -404,13 +404,13 @@ namespace ClassicUO.Game.GameObjects
                 Vector2 pos = new Vector2(posX, posY);
                 Rectangle rect = spriteInfo.UV;
 
-                int diffY = (spriteInfo.UV.Height + spriteInfo.Center.Y);
-                int value = /*!isMounted && diffX <= 44 ? spriteInfo.UV.Height * 2 :*/
+                int diffY = (spriteInfo.LogicalSize.Y + spriteInfo.Center.Y);
+                int value = /*!isMounted && diffX <= 44 ? spriteInfo.LogicalSize.Y * 2 :*/
                 Math.Max(1, diffY);
-                int count = Math.Max((spriteInfo.UV.Height / value) + 1, 2);
+                int count = Math.Max((spriteInfo.LogicalSize.Y / value) + 1, 2);
 
                 rect.Height = Math.Min(value, rect.Height);
-                int remains = spriteInfo.UV.Height - rect.Height;
+                int remains = spriteInfo.LogicalSize.Y - rect.Height;
 
                 int tiles = (byte)owner.Direction % 2 == 0 ? 2 : 2;
 
@@ -630,10 +630,10 @@ namespace ClassicUO.Game.GameObjects
                             position.X
                             - (
                                 IsFlipped
-                                    ? spriteInfo.UV.Width - spriteInfo.Center.X
+                                    ? spriteInfo.LogicalSize.X - spriteInfo.Center.X
                                     : spriteInfo.Center.X
                             );
-                        int y = position.Y - (spriteInfo.UV.Height + spriteInfo.Center.Y);
+                        int y = position.Y - (spriteInfo.LogicalSize.Y + spriteInfo.Center.Y);
 
                         if (
                             animations.PixelCheck(
@@ -644,7 +644,7 @@ namespace ClassicUO.Game.GameObjects
                                 animIndex,
                                 IsFlipped
                                     ? x
-                                        + spriteInfo.UV.Width
+                                        + spriteInfo.LogicalSize.X
                                         - SelectedObject.TranslatedMousePositionByViewport.X
                                     : SelectedObject.TranslatedMousePositionByViewport.X - x,
                                 SelectedObject.TranslatedMousePositionByViewport.Y - y

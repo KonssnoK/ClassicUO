@@ -35,6 +35,7 @@ namespace ClassicUO.Renderer.Lights
                         lightInfo.Height,
                         out spriteInfo.UV
                     );
+                    spriteInfo.LogicalSize = new Microsoft.Xna.Framework.Point(lightInfo.Width, lightInfo.Height);
                 }
             }
 

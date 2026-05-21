@@ -22,7 +22,8 @@ namespace ClassicUO.Renderer.Arts
         {
             _artLoader = artLoader;
             _huesLoader = huesLoader;
-            _atlas = new TextureAtlas(device, 4096, 4096, SurfaceFormat.Color);
+            int atlasSize = artLoader.HDArtAvailable ? 8192 : 4096;
+            _atlas = new TextureAtlas(device, atlasSize, atlasSize, SurfaceFormat.Color);
             _spriteInfos = new SpriteInfo[_artLoader.File.Entries.Length];
             _realArtBounds = new Rectangle[_spriteInfos.Length];
         }
@@ -60,6 +61,7 @@ namespace ClassicUO.Renderer.Arts
                     artInfo.Height,
                     out spriteInfo.UV
                 );
+                spriteInfo.LogicalSize = new Point(artInfo.LogicalWidth, artInfo.LogicalHeight);
 
                 if (idx > 0x4000)
                 {
@@ -113,6 +115,8 @@ namespace ClassicUO.Renderer.Arts
 
             int srcWidth = artInfo.Width;
             int srcHeight = artInfo.Height;
+            int logicalWidth = artInfo.LogicalWidth > 0 ? artInfo.LogicalWidth : srcWidth;
+            int logicalHeight = artInfo.LogicalHeight > 0 ? artInfo.LogicalHeight : srcHeight;
 
             // Make a copy of pixels to avoid modifying the original
             var rentedBuffer = ArrayPool<uint>.Shared.Rent(artInfo.Pixels.Length);
@@ -120,6 +124,11 @@ namespace ClassicUO.Renderer.Arts
             {
                 var pixelsCopy = rentedBuffer.AsSpan(0, artInfo.Pixels.Length);
                 artInfo.Pixels.CopyTo(pixelsCopy);
+
+                // HD assets have an N-wide edge ring of upscaler-haloed pixels. Clear N=HDratio
+                // rows/cols on each side so the cursor's outline isn't a thick dirty border.
+                int hdRatio = srcWidth / logicalWidth;
+                if (hdRatio < 1) hdRatio = 1;
 
                 // Process the copy: find hotX/Y and clear marker pixels
                 for (int y = 0; y < srcHeight; y++)
@@ -150,8 +159,8 @@ namespace ClassicUO.Renderer.Arts
                             continue;
                         }
 
-                        // Clear edge pixels (first/last row and column)
-                        if (x == 0 || y == 0 || x == srcWidth - 1 || y == srcHeight - 1)
+                        // Clear edge pixels (first/last hdRatio rows and columns)
+                        if (x < hdRatio || y < hdRatio || x >= srcWidth - hdRatio || y >= srcHeight - hdRatio)
                         {
                             pixelsCopy[idx] = 0;
                             continue;
@@ -172,11 +181,13 @@ namespace ClassicUO.Renderer.Arts
                     }
                 }
 
-                // Scale hotX/Y by dpiScale
-                hotX = (int)(hotX * dpiScale);
-                hotY = (int)(hotY * dpiScale);
+                // hotX/Y are in source-pixel coords; scale them down to logical-pixel space,
+                // then up by dpiScale (matches the surface's final size below).
+                hotX = (int)((hotX / (float)hdRatio) * dpiScale);
+                hotY = (int)((hotY / (float)hdRatio) * dpiScale);
 
-                // Now create the surface from cleaned pixels
+                // Create surface at HD size, then scale to (logical * dpi) so the OS cursor
+                // matches what the rest of the UI considers "logical" pixel size.
                 fixed (uint* ptr = pixelsCopy)
                 {
                     SDL.SDL_Surface* surface = (SDL.SDL_Surface*)
@@ -187,15 +198,17 @@ namespace ClassicUO.Renderer.Arts
                             (IntPtr)ptr,
                             4 * srcWidth);
 
-                    if (dpiScale != 1f)
-                    {
-                        int width = (int)(srcWidth * dpiScale);
-                        int height = (int)(srcHeight * dpiScale);
+                    int finalW = (int)(logicalWidth * dpiScale);
+                    int finalH = (int)(logicalHeight * dpiScale);
+                    if (finalW < 1) finalW = 1;
+                    if (finalH < 1) finalH = 1;
 
+                    if (finalW != srcWidth || finalH != srcHeight)
+                    {
                         SDL.SDL_Surface* newSurface = (SDL.SDL_Surface*)SDL.SDL_ScaleSurface(
                             (nint)surface,
-                            width,
-                            height,
+                            finalW,
+                            finalH,
                             SDL.SDL_ScaleMode.SDL_SCALEMODE_NEAREST);
 
                         SDL.SDL_DestroySurface((nint)surface);

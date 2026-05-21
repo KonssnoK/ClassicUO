@@ -378,6 +378,7 @@ namespace ClassicUO.Renderer.Animations
                         frame.Height,
                         out spriteInfo.UV
                     );
+                    spriteInfo.LogicalSize = new Microsoft.Xna.Framework.Point(frame.Width, frame.Height);
                 }
             }
 

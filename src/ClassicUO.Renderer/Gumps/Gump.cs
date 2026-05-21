@@ -35,6 +35,7 @@ namespace ClassicUO.Renderer.Gumps
                         gumpInfo.Height,
                         out spriteInfo.UV
                     );
+                    spriteInfo.LogicalSize = new Microsoft.Xna.Framework.Point(gumpInfo.Width, gumpInfo.Height);
 
                     _picker.Set(idx, gumpInfo.Width, gumpInfo.Height, gumpInfo.Pixels);
                 }
