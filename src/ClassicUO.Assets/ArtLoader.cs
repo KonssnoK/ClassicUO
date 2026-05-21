@@ -2,6 +2,7 @@
 
 using ClassicUO.IO;
 using ClassicUO.Utility;
+using ClassicUO.Utility.Logging;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -11,8 +12,12 @@ namespace ClassicUO.Assets
     public sealed class ArtLoader : UOFileLoader
     {
         private UOFile _file;
+        private UOFileUop _hdFile;
         public const int MAX_LAND_DATA_INDEX_COUNT = 0x4000;
         public const int MAX_STATIC_DATA_INDEX_COUNT = 0x14000;
+
+        private const uint HD_MAGIC = 0x44485543u; // 'CUHD'
+        private const int HD_SCALE = 4;
 
         public ArtLoader(UOFileManager fileManager) : base(fileManager)
         {
@@ -20,6 +25,7 @@ namespace ClassicUO.Assets
 
 
         public UOFile File => _file;
+        public bool HDArtAvailable => _hdFile != null;
 
 
         public override void Load()
@@ -42,6 +48,83 @@ namespace ClassicUO.Assets
             }
 
             _file.FillEntries();
+
+            if (FileManager.HDArtEnabled)
+            {
+                var hdPath = FileManager.GetUOFilePath("artLegacyMUL_HD.uop");
+                if (System.IO.File.Exists(hdPath))
+                {
+                    _hdFile = new UOFileUop(hdPath, "build/artlegacymul_hd/{0:D8}.bin");
+                    _hdFile.FillEntries();
+                    Log.Trace($"HD art enabled: {hdPath}");
+                }
+                else
+                {
+                    Log.Warn($"HD art enabled but file not found: {hdPath}");
+                }
+            }
+        }
+
+        private static uint[] TryLoadHD(UOFile hdFile, uint idx, out short width, out short height)
+        {
+            width = 0;
+            height = 0;
+            if (hdFile == null)
+                return null;
+
+            ref var entry = ref hdFile.GetValidRefEntry((int)idx);
+            if (entry.Length == 0 || entry.DecompressedLength == 0)
+                return null;
+
+            var compressed = new byte[entry.Length];
+            hdFile.Seek(entry.Offset, SeekOrigin.Begin);
+            hdFile.Read(compressed);
+
+            byte[] decompressed;
+            if (entry.CompressionFlag == CompressionType.Zlib)
+            {
+                decompressed = new byte[entry.DecompressedLength];
+                var err = ZLib.Decompress(compressed, 0, decompressed, decompressed.Length);
+                if (err != ZLib.ZLibError.Ok)
+                    return null;
+            }
+            else if (entry.CompressionFlag == CompressionType.None)
+            {
+                decompressed = compressed;
+            }
+            else
+            {
+                return null;
+            }
+
+            // CUHD header: u32 magic, u16 version, u16 format, i32 width, i32 height, then BGRA pixels.
+            if (decompressed.Length < 16)
+                return null;
+
+            uint magic = BitConverter.ToUInt32(decompressed, 0);
+            if (magic != HD_MAGIC)
+                return null;
+            ushort version = BitConverter.ToUInt16(decompressed, 4);
+            if (version != 1)
+                return null;
+            ushort format = BitConverter.ToUInt16(decompressed, 6);
+            if (format != 0)
+                return null;
+            int w = BitConverter.ToInt32(decompressed, 8);
+            int h = BitConverter.ToInt32(decompressed, 12);
+            if (w <= 0 || h <= 0 || w > 8192 || h > 8192)
+                return null;
+
+            int pixelBytes = w * h * 4;
+            if (decompressed.Length < 16 + pixelBytes)
+                return null;
+
+            var pixels = new uint[w * h];
+            Buffer.BlockCopy(decompressed, 16, pixels, 0, pixelBytes);
+
+            width = (short)w;
+            height = (short)h;
+            return pixels;
         }
 
         // public Rectangle GetRealArtBounds(int index) =>
@@ -207,6 +290,22 @@ namespace ClassicUO.Assets
 
         public ArtInfo GetArt(uint idx)
         {
+            if (_hdFile != null)
+            {
+                var hdPixels = TryLoadHD(_hdFile, idx, out var hdW, out var hdH);
+                if (hdPixels != null)
+                {
+                    return new ArtInfo()
+                    {
+                        Pixels = hdPixels,
+                        Width = hdW,
+                        Height = hdH,
+                        LogicalWidth = (short)(hdW / HD_SCALE),
+                        LogicalHeight = (short)(hdH / HD_SCALE),
+                    };
+                }
+            }
+
             ref var entry = ref _file.GetValidRefEntry((int)idx);
             var loadLand = idx < 0x4000;
             var pixels = loadLand ?
@@ -218,7 +317,9 @@ namespace ClassicUO.Assets
             {
                 Pixels = pixels,
                 Width = width,
-                Height = height
+                Height = height,
+                LogicalWidth = width,
+                LogicalHeight = height,
             };
         }
     }
@@ -228,5 +329,7 @@ namespace ClassicUO.Assets
         public Span<uint> Pixels;
         public int Width;
         public int Height;
+        public int LogicalWidth;
+        public int LogicalHeight;
     }
 }
