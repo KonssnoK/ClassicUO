@@ -358,7 +358,7 @@ namespace ClassicUO.Game.UI.Gumps
                         gumpInfo.Texture,
                         new Rectangle(
                             x + Width - BorderSize,
-                            y + (gumpInfo.UV.Width >> 1),
+                            y + (gumpInfo.LogicalSize.X >> 1),
                             BorderSize,
                             Height - BorderSize
                         ),

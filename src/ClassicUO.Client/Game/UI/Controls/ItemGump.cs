@@ -57,8 +57,8 @@ namespace ClassicUO.Game.UI.Controls
                     return;
                 }
 
-                Width = spriteInfo.UV.Width;
-                Height = spriteInfo.UV.Height;
+                Width = spriteInfo.LogicalSize.X;
+                Height = spriteInfo.LogicalSize.Y;
 
                 IsPartialHue = !_is_gump && Client.Game.UO.FileManager.TileData.StaticData[value].IsPartialHue;
             }
@@ -306,8 +306,8 @@ namespace ClassicUO.Game.UI.Controls
                     ? ref Client.Game.UO.Gumps.GetGump(Graphic)
                     : ref Client.Game.UO.Arts.GetArt(Graphic);
 
-                int centerX = spriteInfo.UV.Width >> 1;
-                int centerY = spriteInfo.UV.Height >> 1;
+                int centerX = spriteInfo.LogicalSize.X >> 1;
+                int centerY = spriteInfo.LogicalSize.Y >> 1;
 
                 if (
                     ProfileManager.CurrentProfile != null

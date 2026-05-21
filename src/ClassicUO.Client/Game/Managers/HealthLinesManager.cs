@@ -270,7 +270,7 @@ namespace ClassicUO.Game.Managers
                 }
 
                 ref readonly var hueGumpInfo = ref Client.Game.UO.Gumps.GetGump(gumpHue);
-                var targetX = x + BAR_WIDTH_HALF - hueGumpInfo.UV.Width / 2f;
+                var targetX = x + BAR_WIDTH_HALF - hueGumpInfo.LogicalSize.X / 2f;
                 var topTargetY = height + centerY + 8 + 22 + offsetY;
 
                 ref readonly var newTargGumpInfo = ref Client.Game.UO.Gumps.GetGump(topGump);
@@ -292,13 +292,13 @@ namespace ClassicUO.Game.Managers
                         layerDepth
                     );
 
-                y += 7 + newTargGumpInfo.UV.Height / 2 - centerY;
+                y += 7 + newTargGumpInfo.LogicalSize.Y / 2 - centerY;
 
                 newTargGumpInfo = ref Client.Game.UO.Gumps.GetGump(bottomGump);
                 if (newTargGumpInfo.Texture != null)
                     batcher.Draw(
                         newTargGumpInfo.Texture,
-                        new Vector2(targetX, y - 1 - newTargGumpInfo.UV.Height / 2f),
+                        new Vector2(targetX, y - 1 - newTargGumpInfo.LogicalSize.Y / 2f),
                         newTargGumpInfo.UV,
                         hueVecZero,
                         layerDepth
@@ -310,7 +310,7 @@ namespace ClassicUO.Game.Managers
 
             batcher.Draw(
                 gumpInfo.Texture,
-                new Rectangle(x, y, gumpInfo.UV.Width * MULTIPLER, gumpInfo.UV.Height * MULTIPLER),
+                new Rectangle(x, y, gumpInfo.LogicalSize.X * MULTIPLER, gumpInfo.LogicalSize.Y * MULTIPLER),
                 gumpInfo.UV,
                 hueVecNoto,
                 layerDepth
@@ -335,7 +335,7 @@ namespace ClassicUO.Game.Managers
                         x + per * MULTIPLER - offset,
                         y,
                         (BAR_WIDTH - per) * MULTIPLER - offset / 2,
-                        gumpInfo.UV.Height * MULTIPLER
+                        gumpInfo.LogicalSize.Y * MULTIPLER
                     ),
                     gumpInfo.UV,
                     hueVecNoto,
@@ -364,7 +364,7 @@ namespace ClassicUO.Game.Managers
                 gumpInfo = ref Client.Game.UO.Gumps.GetGump(HP_GRAPHIC);
                 batcher.DrawTiled(
                     gumpInfo.Texture,
-                    new Rectangle(x, y, per * MULTIPLER, gumpInfo.UV.Height * MULTIPLER),
+                    new Rectangle(x, y, per * MULTIPLER, gumpInfo.LogicalSize.Y * MULTIPLER),
                     gumpInfo.UV,
                     hueVecNoto,
                     layerDepth

@@ -772,7 +772,7 @@ namespace ClassicUO.Game.UI.Gumps
 
                     ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt((uint)vec[0].East1);
 
-                    int offsetX = x + 121 + (48 - artInfo.UV.Width) / 2;
+                    int offsetX = x + 121 + (48 - artInfo.LogicalSize.X) / 2;
                     int offsetY = y + 36;
 
                     StaticPic pic = new StaticPic((ushort)vec[0].East1, 0)
@@ -781,7 +781,7 @@ namespace ClassicUO.Game.UI.Gumps
                         Y = offsetY,
                         CanMove = false,
                         LocalSerial = (uint)(ID_GUMP_CUSTOM_HOUSE.ID_GCH_ITEM_IN_LIST + i),
-                        Height = artInfo.UV.Height < 60 ? artInfo.UV.Height : 60
+                        Height = artInfo.LogicalSize.Y < 60 ? artInfo.LogicalSize.Y : 60
                     };
 
                     pic.MouseUp += (sender, e) =>
@@ -832,8 +832,8 @@ namespace ClassicUO.Game.UI.Gumps
                         {
                             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
 
-                            int offsetX = x + 130 + (48 - artInfo.UV.Width) / 2;
-                            int offsetY = y + 36 + (120 - artInfo.UV.Height) / 2;
+                            int offsetX = x + 130 + (48 - artInfo.LogicalSize.X) / 2;
+                            int offsetY = y + 36 + (120 - artInfo.LogicalSize.Y) / 2;
 
                             StaticPic pic = new StaticPic(graphic, 0)
                             {
@@ -934,14 +934,14 @@ namespace ClassicUO.Game.UI.Gumps
                     {
                         ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
 
-                        int offsetX = x + 138 + (48 - artInfo.UV.Width) / 2;
+                        int offsetX = x + 138 + (48 - artInfo.LogicalSize.X) / 2;
 
                         if (i > 3)
                         {
                             offsetX -= 20;
                         }
 
-                        int offsetY = y + 36 + (120 - artInfo.UV.Height) / 2;
+                        int offsetY = y + 36 + (120 - artInfo.LogicalSize.Y) / 2;
 
                         StaticPic pic = new StaticPic(graphic, 0)
                         {
@@ -1079,8 +1079,8 @@ namespace ClassicUO.Game.UI.Gumps
                         {
                             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
 
-                            int offsetX = x + 123 + (48 - artInfo.UV.Width) / 2;
-                            int offsetY = y + 36 + (60 - artInfo.UV.Height) / 2;
+                            int offsetX = x + 123 + (48 - artInfo.LogicalSize.X) / 2;
+                            int offsetY = y + 36 + (60 - artInfo.LogicalSize.Y) / 2;
 
                             StaticPic pic = new StaticPic(graphic, 0)
                             {
@@ -1153,8 +1153,8 @@ namespace ClassicUO.Game.UI.Gumps
                         {
                             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
 
-                            int offsetX = x + 123 + (48 - artInfo.UV.Width) / 2;
-                            int offsetY = y + 36 + (60 - artInfo.UV.Height) / 2;
+                            int offsetX = x + 123 + (48 - artInfo.LogicalSize.X) / 2;
+                            int offsetY = y + 36 + (60 - artInfo.LogicalSize.Y) / 2;
 
                             StaticPic pic = new StaticPic(graphic, 0)
                             {
@@ -1214,7 +1214,7 @@ namespace ClassicUO.Game.UI.Gumps
 
                     ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt((uint)vec[0].NSCrosspiece);
 
-                    int offsetX = x + 121 + (48 - artInfo.UV.Width) / 2;
+                    int offsetX = x + 121 + (48 - artInfo.LogicalSize.X) / 2;
                     int offsetY = y + 36;
 
                     StaticPic pic = new StaticPic((ushort)vec[0].NSCrosspiece, 0)
@@ -1279,8 +1279,8 @@ namespace ClassicUO.Game.UI.Gumps
                             {
                                 ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
 
-                                int offsetX = x + 130 + (48 - artInfo.UV.Width) / 2;
-                                int offsetY = y + 44 + (60 - artInfo.UV.Height) / 2;
+                                int offsetX = x + 130 + (48 - artInfo.LogicalSize.X) / 2;
+                                int offsetY = y + 44 + (60 - artInfo.LogicalSize.Y) / 2;
 
                                 StaticPic pic = new StaticPic(graphic, 0)
                                 {
@@ -1400,7 +1400,7 @@ namespace ClassicUO.Game.UI.Gumps
 
                     ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt((uint)vec[0].Piece5);
 
-                    int offsetX = x + 121 + (48 - artInfo.UV.Width) / 2;
+                    int offsetX = x + 121 + (48 - artInfo.LogicalSize.X) / 2;
                     int offsetY = y + 36;
 
                     StaticPic pic = new StaticPic((ushort)vec[0].Piece5, 0)
@@ -1409,8 +1409,8 @@ namespace ClassicUO.Game.UI.Gumps
                         Y = offsetY,
                         CanMove = false,
                         LocalSerial = (uint)(ID_GUMP_CUSTOM_HOUSE.ID_GCH_ITEM_IN_LIST + i),
-                        Width = artInfo.UV.Width < 48 ? artInfo.UV.Width : 48,
-                        Height = artInfo.UV.Height < 60 ? artInfo.UV.Height : 60
+                        Width = artInfo.LogicalSize.X < 48 ? artInfo.LogicalSize.X : 48,
+                        Height = artInfo.LogicalSize.Y < 60 ? artInfo.LogicalSize.Y : 60
                     };
 
                     pic.MouseUp += (sender, e) =>
@@ -1461,8 +1461,8 @@ namespace ClassicUO.Game.UI.Gumps
                         {
                             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
 
-                            int offsetX = x + 130 + (48 - artInfo.UV.Width) / 2;
-                            int offsetY = y + 44 + (120 - artInfo.UV.Height) / 2;
+                            int offsetX = x + 130 + (48 - artInfo.LogicalSize.X) / 2;
+                            int offsetY = y + 44 + (120 - artInfo.LogicalSize.Y) / 2;
 
                             StaticPic pic = new StaticPic(graphic, 0)
                             {

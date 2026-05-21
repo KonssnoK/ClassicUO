@@ -50,8 +50,8 @@ namespace ClassicUO.Game.UI.Controls
                     return;
                 }
 
-                Width = artInfo.UV.Width;
-                Height = artInfo.UV.Height;
+                Width = artInfo.LogicalSize.X;
+                Height = artInfo.LogicalSize.Y;
 
                 IsPartialHue = Client.Game.UO.FileManager.TileData.StaticData[value].IsPartialHue;
             }

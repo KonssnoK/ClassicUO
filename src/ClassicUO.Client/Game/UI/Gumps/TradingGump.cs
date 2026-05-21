@@ -176,14 +176,14 @@ namespace ClassicUO.Game.UI.Gumps
 
                 if (artInfo.Texture != null)
                 {
-                    if (x + artInfo.UV.Width > _myBox.Width)
+                    if (x + artInfo.LogicalSize.X > _myBox.Width)
                     {
-                        x = _myBox.Width - artInfo.UV.Width;
+                        x = _myBox.Width - artInfo.LogicalSize.X;
                     }
 
-                    if (y + artInfo.UV.Height > _myBox.Height)
+                    if (y + artInfo.LogicalSize.Y > _myBox.Height)
                     {
-                        y = _myBox.Height - artInfo.UV.Height;
+                        y = _myBox.Height - artInfo.LogicalSize.Y;
                     }
                 }
 
@@ -231,14 +231,14 @@ namespace ClassicUO.Game.UI.Gumps
 
                 if (artInfo.Texture != null)
                 {
-                    if (x + artInfo.UV.Width > _myBox.Width)
+                    if (x + artInfo.LogicalSize.X > _myBox.Width)
                     {
-                        x = _myBox.Width - artInfo.UV.Width;
+                        x = _myBox.Width - artInfo.LogicalSize.X;
                     }
 
-                    if (y + artInfo.UV.Height > _myBox.Height)
+                    if (y + artInfo.LogicalSize.Y > _myBox.Height)
                     {
-                        y = _myBox.Height - artInfo.UV.Height;
+                        y = _myBox.Height - artInfo.LogicalSize.Y;
                     }
                 }
 
@@ -276,17 +276,17 @@ namespace ClassicUO.Game.UI.Gumps
 
                         if (artInfo.Texture != null)
                         {
-                            x -= artInfo.UV.Width >> 1;
-                            y -= artInfo.UV.Height >> 1;
+                            x -= artInfo.LogicalSize.X >> 1;
+                            y -= artInfo.LogicalSize.Y >> 1;
 
-                            if (x + artInfo.UV.Width > _myBox.Width)
+                            if (x + artInfo.LogicalSize.X > _myBox.Width)
                             {
-                                x = _myBox.Width - artInfo.UV.Width;
+                                x = _myBox.Width - artInfo.LogicalSize.X;
                             }
 
-                            if (y + artInfo.UV.Height > _myBox.Height)
+                            if (y + artInfo.LogicalSize.Y > _myBox.Height)
                             {
-                                y = _myBox.Height - artInfo.UV.Height;
+                                y = _myBox.Height - artInfo.LogicalSize.Y;
                             }
                         }
 

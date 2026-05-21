@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-2-Clause
+﻿// SPDX-License-Identifier: BSD-2-Clause
 
 using ClassicUO.Assets;
 using ClassicUO.Configuration;
@@ -2982,9 +2982,9 @@ namespace ClassicUO.Network
 
                     ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
 
-                    if (artInfo.UV.Width != 0 && artInfo.UV.Height != 0)
+                    if (artInfo.LogicalSize.X != 0 && artInfo.LogicalSize.Y != 0)
                     {
-                        int posY = artInfo.UV.Height;
+                        int posY = artInfo.LogicalSize.Y;
 
                         if (posY >= 47)
                         {
@@ -2997,7 +2997,7 @@ namespace ClassicUO.Network
 
                         gump.AddItem(graphic, hue, name, posX, posY, i + 1);
 
-                        posX += artInfo.UV.Width;
+                        posX += artInfo.LogicalSize.X;
                     }
                 }
 
@@ -3248,8 +3248,8 @@ namespace ClassicUO.Network
 
             ref readonly var gumpInfo = ref Client.Game.UO.Gumps.GetGump(0x0906);
 
-            int x = (Client.Game.ClientBounds.Width >> 1) - (gumpInfo.UV.Width >> 1);
-            int y = (Client.Game.ClientBounds.Height >> 1) - (gumpInfo.UV.Height >> 1);
+            int x = (Client.Game.ClientBounds.Width >> 1) - (gumpInfo.LogicalSize.X >> 1);
+            int y = (Client.Game.ClientBounds.Height >> 1) - (gumpInfo.LogicalSize.Y >> 1);
 
             ColorPickerGump gump = UIManager.GetGump<ColorPickerGump>(serial);
 

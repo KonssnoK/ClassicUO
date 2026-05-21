@@ -180,8 +180,8 @@ namespace ClassicUO.Game
             }
 
             return new Point(
-                (int)((artInfo.UV.Width >> 1) * scale) - ItemHold.MouseOffset.X,
-                (int)((artInfo.UV.Height >> 1) * scale) - ItemHold.MouseOffset.Y
+                (int)((artInfo.LogicalSize.X >> 1) * scale) - ItemHold.MouseOffset.X,
+                (int)((artInfo.LogicalSize.Y >> 1) * scale) - ItemHold.MouseOffset.Y
             );
         }
 
@@ -241,9 +241,9 @@ namespace ClassicUO.Game
 
             if (
                 Mouse.Position.X >= x
-                && Mouse.Position.X < x + artInfo.UV.Width
+                && Mouse.Position.X < x + artInfo.LogicalSize.X
                 && Mouse.Position.Y >= y
-                && Mouse.Position.Y < y + artInfo.UV.Height
+                && Mouse.Position.Y < y + artInfo.LogicalSize.Y
             )
             {
                 if (!ItemHold.IgnoreFixedPosition)
@@ -452,8 +452,8 @@ namespace ClassicUO.Game
                     var rect = new Rectangle(
                         x,
                         y,
-                        (int)(artInfo.UV.Width * scale),
-                        (int)(artInfo.UV.Height * scale)
+                        (int)(artInfo.LogicalSize.X * scale),
+                        (int)(artInfo.LogicalSize.Y * scale)
                     );
 
                     sb.Draw(artInfo.Texture, rect, artInfo.UV, hue, 0f);
@@ -505,18 +505,32 @@ namespace ClassicUO.Game
 
                 ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(Graphic);
 
-                var rect = artInfo.UV;
+                var srcRect = artInfo.UV;
 
                 const int BORDER_SIZE = 1;
-                rect.X += BORDER_SIZE;
-                rect.Y += BORDER_SIZE;
-                rect.Width -= BORDER_SIZE * 2;
-                rect.Height -= BORDER_SIZE * 2;
+                // HD assets have 4x larger atlas regions but the same logical 1-px border
+                // of dirty (upscaler-haloed) pixels — crop the source-side border by the
+                // HD ratio so we don't sample the halo into a 1-logical-px wide dark fringe.
+                int hdScale = artInfo.LogicalSize.X > 0
+                    ? Math.Max(1, artInfo.UV.Width / artInfo.LogicalSize.X)
+                    : 1;
+                int srcBorder = BORDER_SIZE * hdScale;
+                srcRect.X += srcBorder;
+                srcRect.Y += srcBorder;
+                srcRect.Width -= srcBorder * 2;
+                srcRect.Height -= srcBorder * 2;
+
+                var destRect = new Rectangle(
+                    Mouse.Position.X - offX,
+                    Mouse.Position.Y - offY,
+                    artInfo.LogicalSize.X - BORDER_SIZE * 2,
+                    artInfo.LogicalSize.Y - BORDER_SIZE * 2
+                );
 
                 sb.Draw(
                     artInfo.Texture,
-                    new Vector2(Mouse.Position.X - offX, Mouse.Position.Y - offY),
-                    rect,
+                    destRect,
+                    srcRect,
                     hueVec,
                     0f
                 );

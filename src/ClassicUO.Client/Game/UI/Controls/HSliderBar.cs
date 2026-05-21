@@ -64,7 +64,7 @@ namespace ClassicUO.Game.UI.Controls
 
             if (gumpInfo.Texture != null)
             {
-                Height = gumpInfo.UV.Height;
+                Height = gumpInfo.LogicalSize.Y;
             }
 
             CalculateOffset();
@@ -277,7 +277,7 @@ namespace ClassicUO.Game.UI.Controls
                 (uint)(_style == HSliderBarStyle.MetalWidgetRecessedBar ? 216 : 0x845)
             );
 
-            len -= gumpInfo.UV.Width;
+            len -= gumpInfo.LogicalSize.X;
             float perc = x / (float)len * 100.0f;
             Value = (int)(maxValue * perc / 100.0f) + MinValue;
             CalculateOffset();
@@ -301,7 +301,7 @@ namespace ClassicUO.Game.UI.Controls
             ref readonly var gumpInfo = ref Client.Game.UO.Gumps.GetGump(
                 (uint)(_style == HSliderBarStyle.MetalWidgetRecessedBar ? 216 : 0x845)
             );
-            length -= gumpInfo.UV.Width;
+            length -= gumpInfo.LogicalSize.X;
 
             if (maxValue > 0)
             {

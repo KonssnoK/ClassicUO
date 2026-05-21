@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-2-Clause
+﻿// SPDX-License-Identifier: BSD-2-Clause
 
 using ClassicUO.Assets;
 using ClassicUO.Configuration;
@@ -256,8 +256,8 @@ namespace ClassicUO.Game.UI.Gumps
                     UIManager.Add(
                         gump = new HealthBarGump(World, entity)
                         {
-                            X = Mouse.LClickPosition.X - (gumpInfo.UV.Width >> 1),
-                            Y = Mouse.LClickPosition.Y - (gumpInfo.UV.Height >> 1)
+                            X = Mouse.LClickPosition.X - (gumpInfo.LogicalSize.X >> 1),
+                            Y = Mouse.LClickPosition.Y - (gumpInfo.LogicalSize.Y >> 1)
                         }
                     );
                 }

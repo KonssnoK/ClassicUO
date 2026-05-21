@@ -153,8 +153,8 @@ namespace ClassicUO.Game.UI.Gumps
 
                 ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(_graphic);
 
-                Width = artInfo.UV.Width;
-                Height = artInfo.UV.Height;
+                Width = artInfo.LogicalSize.X;
+                Height = artInfo.LogicalSize.Y;
                 _hue = hue;
                 _isPartial = Client.Game.UO.FileManager.TileData.StaticData[graphic].IsPartialHue;
             }

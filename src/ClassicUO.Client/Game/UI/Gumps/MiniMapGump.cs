@@ -66,7 +66,7 @@ namespace ClassicUO.Game.UI.Gumps
 
             if (_blankGumpsPixels[index] == null)
             {
-                int size = gumpInfo.UV.Width * gumpInfo.UV.Height;
+                int size = gumpInfo.LogicalSize.X * gumpInfo.LogicalSize.Y;
                 _blankGumpsPixels[index] = new uint[size];
                 _blankGumpsPixels[index + 2] = new uint[size];
                 gumpInfo.Texture.GetData(0, gumpInfo.UV, _blankGumpsPixels[index], 0, size);
@@ -74,8 +74,8 @@ namespace ClassicUO.Game.UI.Gumps
                 Array.Copy(_blankGumpsPixels[index], 0, _blankGumpsPixels[index + 2], 0, size);
             }
 
-            Width = gumpInfo.UV.Width;
-            Height = gumpInfo.UV.Height;
+            Width = gumpInfo.LogicalSize.X;
+            Height = gumpInfo.LogicalSize.Y;
             CreateMiniMapTexture(gumpInfo.Texture, gumpInfo.UV, true);
         }
 

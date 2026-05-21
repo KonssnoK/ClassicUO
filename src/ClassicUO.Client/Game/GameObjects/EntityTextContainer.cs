@@ -192,7 +192,7 @@ namespace ClassicUO.Game.GameObjects
                     if (artInfo.Texture != null)
                     {
                         p.X += 22;
-                        int yValue = artInfo.UV.Height >> 1;
+                        int yValue = artInfo.LogicalSize.Y >> 1;
 
                         if (Parent is Item it)
                         {

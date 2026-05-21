@@ -1119,8 +1119,8 @@ namespace ClassicUO.Game.Scenes
                 batcher.Draw(
                     lightInfo.Texture,
                     new Vector2(
-                        l.DrawX - lightInfo.UV.Width * 0.5f,
-                        l.DrawY - lightInfo.UV.Height * 0.5f
+                        l.DrawX - lightInfo.LogicalSize.X * 0.5f,
+                        l.DrawY - lightInfo.LogicalSize.Y * 0.5f
                     ),
                     lightInfo.UV,
                     hue,

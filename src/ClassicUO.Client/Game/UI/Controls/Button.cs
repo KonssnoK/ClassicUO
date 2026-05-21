@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-2-Clause
+﻿// SPDX-License-Identifier: BSD-2-Clause
 
 using ClassicUO.Game.Scenes;
 using ClassicUO.Input;
@@ -51,8 +51,8 @@ namespace ClassicUO.Game.UI.Controls
                 return;
             }
 
-            Width = gumpInfo.UV.Width;
-            Height = gumpInfo.UV.Height;
+            Width = gumpInfo.LogicalSize.X;
+            Height = gumpInfo.LogicalSize.Y;
             FontHue = normalHue == ushort.MaxValue ? (ushort)0 : normalHue;
             HueHover = hoverHue == ushort.MaxValue ? normalHue : hoverHue;
 
@@ -118,8 +118,8 @@ namespace ClassicUO.Game.UI.Controls
 
                 ref readonly var gumpInfo = ref Client.Game.UO.Gumps.GetGump(value);
 
-                Width = gumpInfo.UV.Width;
-                Height = gumpInfo.UV.Height;
+                Width = gumpInfo.LogicalSize.X;
+                Height = gumpInfo.LogicalSize.Y;
             }
         }
 
@@ -132,8 +132,8 @@ namespace ClassicUO.Game.UI.Controls
 
                 ref readonly var gumpInfo = ref Client.Game.UO.Gumps.GetGump(value);
 
-                Width = gumpInfo.UV.Width;
-                Height = gumpInfo.UV.Height;
+                Width = gumpInfo.LogicalSize.X;
+                Height = gumpInfo.LogicalSize.Y;
             }
         }
 
@@ -146,8 +146,8 @@ namespace ClassicUO.Game.UI.Controls
 
                 ref readonly var gumpInfo = ref Client.Game.UO.Gumps.GetGump(value);
 
-                Width = gumpInfo.UV.Width;
-                Height = gumpInfo.UV.Height;
+                Width = gumpInfo.LogicalSize.X;
+                Height = gumpInfo.LogicalSize.Y;
             }
         }
 

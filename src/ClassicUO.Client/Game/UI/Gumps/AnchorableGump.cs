@@ -106,10 +106,10 @@ namespace ClassicUO.Game.UI.Gumps
                 if (gumpInfo.Texture != null)
                 {
                     if (
-                        x >= Width - gumpInfo.UV.Width
+                        x >= Width - gumpInfo.LogicalSize.X
                         && x < Width
                         && y >= 0
-                        && y <= gumpInfo.UV.Height
+                        && y <= gumpInfo.LogicalSize.Y
                     )
                     {
                         UIManager.AnchorManager.DetachControl(this);

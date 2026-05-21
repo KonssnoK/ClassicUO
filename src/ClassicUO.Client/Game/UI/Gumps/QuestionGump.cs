@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-2-Clause
+﻿// SPDX-License-Identifier: BSD-2-Clause
 
 using System;
 using ClassicUO.Game.UI.Controls;
@@ -18,8 +18,8 @@ namespace ClassicUO.Game.UI.Gumps
 
             ref readonly var gumpInfo = ref Client.Game.UO.Gumps.GetGump(0x0816);
 
-            Width = gumpInfo.UV.Width;
-            Height = gumpInfo.UV.Height;
+            Width = gumpInfo.LogicalSize.X;
+            Height = gumpInfo.LogicalSize.Y;
 
             Add(new Label(message, false, 0x0386, 165, font: 1) { X = 33, Y = 30 });
 

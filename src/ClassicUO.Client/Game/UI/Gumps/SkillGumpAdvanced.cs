@@ -355,8 +355,8 @@ namespace ClassicUO.Game.UI.Gumps
                 SkillButtonGump skillButtonGump = new SkillButtonGump(
                     _gump.World,
                     _skill,
-                    Mouse.LClickPosition.X + (gumpInfo.UV.Width >> 1),
-                    Mouse.LClickPosition.Y + (gumpInfo.UV.Height >> 1)
+                    Mouse.LClickPosition.X + (gumpInfo.LogicalSize.X >> 1),
+                    Mouse.LClickPosition.Y + (gumpInfo.LogicalSize.Y >> 1)
                 );
 
                 UIManager.Add(skillButtonGump);

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-2-Clause
+﻿// SPDX-License-Identifier: BSD-2-Clause
 
 using ClassicUO.Game.Scenes;
 using ClassicUO.Renderer;
@@ -62,8 +62,8 @@ namespace ClassicUO.Game.UI.Controls
                         return;
                     }
 
-                    Width = gumpInfo.UV.Width;
-                    Height = gumpInfo.UV.Height;
+                    Width = gumpInfo.LogicalSize.X;
+                    Height = gumpInfo.LogicalSize.Y;
                 }
             }
         }
@@ -117,24 +117,24 @@ namespace ClassicUO.Game.UI.Controls
 
             if (width == 0)
             {
-                width = gumpInfo.UV.Width;
+                width = gumpInfo.LogicalSize.X;
             }
 
             if (height == 0)
             {
-                height = gumpInfo.UV.Height;
+                height = gumpInfo.LogicalSize.Y;
             }
 
-            while (x > gumpInfo.UV.Width && width > gumpInfo.UV.Width)
+            while (x > gumpInfo.LogicalSize.X && width > gumpInfo.LogicalSize.X)
             {
-                x -= gumpInfo.UV.Width;
-                width -= gumpInfo.UV.Width;
+                x -= gumpInfo.LogicalSize.X;
+                width -= gumpInfo.LogicalSize.X;
             }
 
-            while (y > gumpInfo.UV.Height && height > gumpInfo.UV.Height)
+            while (y > gumpInfo.LogicalSize.Y && height > gumpInfo.LogicalSize.Y)
             {
-                y -= gumpInfo.UV.Height;
-                height -= gumpInfo.UV.Height;
+                y -= gumpInfo.LogicalSize.Y;
+                height -= gumpInfo.LogicalSize.Y;
             }
 
             if (x > width || y > height)

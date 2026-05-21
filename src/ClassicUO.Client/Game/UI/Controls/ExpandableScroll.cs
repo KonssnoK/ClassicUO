@@ -52,22 +52,22 @@ namespace ClassicUO.Game.UI.Controls
                     return;
                 }
 
-                if (gumpInfo.UV.Width > width)
+                if (gumpInfo.LogicalSize.X > width)
                 {
-                    width = gumpInfo.UV.Width;
+                    width = gumpInfo.LogicalSize.X;
                 }
 
                 if (i == 0)
                 {
-                    w0 = gumpInfo.UV.Width;
+                    w0 = gumpInfo.LogicalSize.X;
                 }
                 else if (i == 1)
                 {
-                    w1 = gumpInfo.UV.Width;
+                    w1 = gumpInfo.LogicalSize.X;
                 }
                 else if (i == 3)
                 {
-                    w3 = gumpInfo.UV.Width;
+                    w3 = gumpInfo.LogicalSize.X;
                 }
             }
 
