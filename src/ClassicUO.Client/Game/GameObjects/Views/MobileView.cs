@@ -718,13 +718,20 @@ namespace ClassicUO.Game.GameObjects
 
             if (hasShadow)
             {
-                batcher.DrawShadow(
-                    spriteInfo.Texture,
-                    new Vector2(x, y),
-                    spriteInfo.UV,
-                    mirror,
-                    depth
-                );
+                // For HD mobs, DrawShadow's position-only form draws at atlas-pixel size, which
+                // is 4x too big. Skip the shadow for HD mobs until DrawShadow supports a logical
+                // dest size — visually that just removes the shadow, less broken than a giant one.
+                bool isHdMob = spriteInfo.LogicalSize.X != spriteInfo.UV.Width;
+                if (!isHdMob)
+                {
+                    batcher.DrawShadow(
+                        spriteInfo.Texture,
+                        new Vector2(x, y),
+                        spriteInfo.UV,
+                        mirror,
+                        depth
+                    );
+                }
             }
             else
             {
@@ -761,6 +768,13 @@ namespace ClassicUO.Game.GameObjects
                 {
                     Vector2 pos = new Vector2(x, y);
                     Rectangle rect = spriteInfo.UV;
+                    // HD scale: logical dest size / physical atlas size. 1.0 for legacy assets,
+                    // 0.25 for 4x HD assets. Applied to batcher.Draw's scale parameter so the
+                    // mob draws at its world-space (logical) size regardless of atlas resolution.
+                    float hdScaleX = spriteInfo.LogicalSize.X > 0 && rect.Width > 0
+                        ? (float)spriteInfo.LogicalSize.X / rect.Width : 1f;
+                    float hdScaleY = spriteInfo.LogicalSize.Y > 0 && rect.Height > 0
+                        ? (float)spriteInfo.LogicalSize.Y / rect.Height : 1f;
 
                     if (charIsSitting)
                     {
@@ -783,8 +797,12 @@ namespace ClassicUO.Game.GameObjects
                         int value = Math.Max(1, diffY);
                         int count = Math.Max((spriteInfo.LogicalSize.Y / value) + 1, 2);
 
-                        rect.Height = Math.Min(value, rect.Height);
-                        int remains = spriteInfo.LogicalSize.Y - rect.Height;
+                        // Convert the slicing math from logical-px to atlas-px so it splits the
+                        // atlas region correctly; the scale below renders each slice at logical size.
+                        int sliceLogical = Math.Min(value, spriteInfo.LogicalSize.Y);
+                        int sliceAtlas = (int)Math.Round(sliceLogical / Math.Max(hdScaleY, 0.0001f));
+                        rect.Height = Math.Min(sliceAtlas, rect.Height);
+                        int remainsLogical = spriteInfo.LogicalSize.Y - sliceLogical;
 
                         int tiles = (byte)owner.Direction % 2 == 0 ? 2 : 2;
 
@@ -797,15 +815,17 @@ namespace ClassicUO.Game.GameObjects
                                 hueVec,
                                 0f,
                                 Vector2.Zero,
-                                1f,
+                                new Vector2(hdScaleX, hdScaleY),
                                 mirror ? SpriteEffects.FlipHorizontally : SpriteEffects.None,
                                 depth + 1f + (i * tiles)
                             );
 
-                            pos.Y += rect.Height;
+                            // Advance by the dest (logical) slice height so adjacent slices butt up.
+                            pos.Y += (int)Math.Round(rect.Height * hdScaleY);
                             rect.Y += rect.Height;
-                            rect.Height = remains;
-                            remains -= rect.Height;
+                            int nextAtlas = (int)Math.Round(remainsLogical / Math.Max(hdScaleY, 0.0001f));
+                            rect.Height = nextAtlas;
+                            remainsLogical -= (int)Math.Round(rect.Height * hdScaleY);
                         }
                     }
 

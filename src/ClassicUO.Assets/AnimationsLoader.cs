@@ -74,9 +74,18 @@ namespace ClassicUO.Assets
                     var hdMulPath = FileManager.GetUOFilePath("anim" + (i == 0 ? string.Empty : (i + 1).ToString()) + "_HD.uop");
                     if (File.Exists(hdMulPath))
                     {
-                        // Pattern unused for indexed access (we hash lookup-time strings via TryGetUOPData).
-                        _hdFiles[i] = new UOFileUop(hdMulPath, $"build/anim_hd/{i}/{{0:D8}}.bin");
-                        _hdFiles[i].FillEntries();
+                        try
+                        {
+                            // Pattern unused for indexed access (we hash lookup-time strings via TryGetUOPData).
+                            _hdFiles[i] = new UOFileUop(hdMulPath, $"build/anim_hd/{i}/{{0:D8}}.bin");
+                            _hdFiles[i].FillEntries();
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn($"HD anim sidecar load failed for {hdMulPath}: {ex.Message}. Falling back to legacy.");
+                            _hdFiles[i]?.Dispose();
+                            _hdFiles[i] = null;
+                        }
                     }
                 }
             }
@@ -102,8 +111,17 @@ namespace ClassicUO.Assets
                         var hdUopPath = FileManager.GetUOFilePath($"AnimationFrame{i + 1}_HD.uop");
                         if (File.Exists(hdUopPath))
                         {
-                            _hdFilesUop[i] = new UOFileUop(hdUopPath, "build/animationframe_hd/{0:D6}/{0:D2}.bin");
-                            _hdFilesUop[i].FillEntries();
+                            try
+                            {
+                                _hdFilesUop[i] = new UOFileUop(hdUopPath, "build/animationframe_hd/{0:D6}/{0:D2}.bin");
+                                _hdFilesUop[i].FillEntries();
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warn($"HD anim sidecar load failed for {hdUopPath}: {ex.Message}. Falling back to legacy.");
+                                _hdFilesUop[i]?.Dispose();
+                                _hdFilesUop[i] = null;
+                            }
                         }
                     }
                 }

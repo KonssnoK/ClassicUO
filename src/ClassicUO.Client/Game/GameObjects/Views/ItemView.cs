@@ -403,22 +403,26 @@ namespace ClassicUO.Game.GameObjects
 
                 Vector2 pos = new Vector2(posX, posY);
                 Rectangle rect = spriteInfo.UV;
+                // HD scale: logical dest size / physical atlas size (1.0 for legacy, 0.25 for 4x HD).
+                float hdScaleX = spriteInfo.LogicalSize.X > 0 && rect.Width > 0
+                    ? (float)spriteInfo.LogicalSize.X / rect.Width : 1f;
+                float hdScaleY = spriteInfo.LogicalSize.Y > 0 && rect.Height > 0
+                    ? (float)spriteInfo.LogicalSize.Y / rect.Height : 1f;
 
                 int diffY = (spriteInfo.LogicalSize.Y + spriteInfo.Center.Y);
                 int value = /*!isMounted && diffX <= 44 ? spriteInfo.LogicalSize.Y * 2 :*/
                 Math.Max(1, diffY);
                 int count = Math.Max((spriteInfo.LogicalSize.Y / value) + 1, 2);
 
-                rect.Height = Math.Min(value, rect.Height);
-                int remains = spriteInfo.LogicalSize.Y - rect.Height;
+                int sliceLogical = Math.Min(value, spriteInfo.LogicalSize.Y);
+                int sliceAtlas = (int)Math.Round(sliceLogical / Math.Max(hdScaleY, 0.0001f));
+                rect.Height = Math.Min(sliceAtlas, rect.Height);
+                int remainsLogical = spriteInfo.LogicalSize.Y - sliceLogical;
 
                 int tiles = (byte)owner.Direction % 2 == 0 ? 2 : 2;
 
                 for (int i = 0; i < count; ++i)
                 {
-                    //hueVec.Y = 1;
-                    //hueVec.X = 0x44 + (i * 20);
-
                     batcher.Draw(
                         spriteInfo.Texture,
                         pos,
@@ -426,16 +430,16 @@ namespace ClassicUO.Game.GameObjects
                         hueVec,
                         0f,
                         Vector2.Zero,
-                        1f,
+                        new Vector2(hdScaleX, hdScaleY),
                         flipped ? SpriteEffects.FlipHorizontally : SpriteEffects.None,
                         depth + 1f + (i * tiles)
-                    //depth + (i * tiles) + (owner.PriorityZ * 0.001f)
                     );
 
-                    pos.Y += rect.Height;
+                    pos.Y += (int)Math.Round(rect.Height * hdScaleY);
                     rect.Y += rect.Height;
-                    rect.Height = remains; // Math.Min(value, remains);
-                    remains -= rect.Height;
+                    int nextAtlas = (int)Math.Round(remainsLogical / Math.Max(hdScaleY, 0.0001f));
+                    rect.Height = nextAtlas;
+                    remainsLogical -= (int)Math.Round(rect.Height * hdScaleY);
                 }
             }
         }
