@@ -20,6 +20,7 @@ namespace ClassicUO
     {
         public Renderer.Animations.Animations Animations { get; private set; }
         public Renderer.Arts.Art Arts { get; private set; }
+        public Renderer.Arts.EcArt EcArts { get; private set; }
         public Renderer.Gumps.Gump Gumps { get; private set; }
         public Renderer.Texmaps.Texmap Texmaps { get; private set; }
         public Renderer.Lights.Light Lights { get; private set; }
@@ -83,6 +84,13 @@ namespace ClassicUO
 
             Animations = new Renderer.Animations.Animations(FileManager.Animations, game.GraphicsDevice);
             Arts = new Renderer.Arts.Art(FileManager.Arts, FileManager.Hues, game.GraphicsDevice);
+            EcArts = new Renderer.Arts.EcArt(FileManager.EcArts, FileManager.EcTileArt, game.GraphicsDevice);
+            if (EcArts.CanEnable)
+            {
+                EcArts.IsEnabled = Configuration.Settings.GlobalSettings.UseEnhancedArt;
+                Log.Trace($"EC Art: {(EcArts.IsEnabled ? "ENABLED" : "disabled")}  "
+                          + "(press F11 in game to toggle)");
+            }
             Gumps = new Renderer.Gumps.Gump(FileManager.Gumps, game.GraphicsDevice);
             Texmaps = new Renderer.Texmaps.Texmap(FileManager.Texmaps, game.GraphicsDevice);
             Lights = new Renderer.Lights.Light(FileManager.Lights, game.GraphicsDevice);
@@ -98,6 +106,7 @@ namespace ClassicUO
 
         public void Unload()
         {
+            EcArts?.Dispose();
             FileManager.Dispose();
             World?.Map?.Destroy();
         }
@@ -188,7 +197,12 @@ namespace ClassicUO
 
             var filesOverride = new UOFilesOverrideMap(Settings.GlobalSettings.OverrideFile);
             filesOverride.Load();
-            FileManager = new UOFileManager(clientVersion, clientPath, filesOverride);
+            FileManager = new UOFileManager(clientVersion, clientPath, filesOverride,
+                                            Settings.GlobalSettings.EnhancedClientDirectory);
+            if (FileManager.HasEnhancedClient)
+            {
+                Log.Trace($"Enhanced Client assets folder: {FileManager.EnhancedClientPath}");
+            }
             FileManager.Load(Settings.GlobalSettings.UseVerdata, Settings.GlobalSettings.Language, Settings.GlobalSettings.MapsLayouts);
 
             StaticFilters.Load(FileManager.TileData);
