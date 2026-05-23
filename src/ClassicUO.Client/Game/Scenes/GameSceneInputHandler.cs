@@ -1138,6 +1138,55 @@ namespace ClassicUO.Game.Scenes
                 _world.TargetManager.CancelTarget();
             }
 
+            // F12: toggle EC diagnostic mode — when on AND F11 (EC) is on,
+            // tiles with no EC replacement aren't drawn at all so you can see
+            // which world statics actually have EC sprites in this install.
+            if (keycode == SDL.SDL_Keycode.SDLK_F12 && !e.repeat)
+            {
+                var ecArts = Client.Game.UO.EcArts;
+                if (ecArts != null && ecArts.CanEnable)
+                {
+                    ecArts.DiagnosticMode = !ecArts.DiagnosticMode;
+                    _world.Map?.MarkAllChunksDirty();
+                    ClassicUO.Utility.Logging.Log.Info(
+                        $"EC Diagnostic Mode: {(ecArts.DiagnosticMode ? "ON" : "off")}");
+                    _world.MessageManager?.HandleMessage(
+                        null,
+                        $"EC Diagnostic: {(ecArts.DiagnosticMode ? "ON (CC misses hidden)" : "off")}",
+                        "System",
+                        0x35,
+                        Game.Data.MessageType.System,
+                        3,
+                        Game.Data.TextType.SYSTEM);
+                }
+                return;
+            }
+
+            // F11: toggle EC art swap on/off so you can A/B compare CC vs EC tiles live.
+            if (keycode == SDL.SDL_Keycode.SDLK_F11 && !e.repeat)
+            {
+                var ecArts = Client.Game.UO.EcArts;
+                if (ecArts != null && ecArts.CanEnable)
+                {
+                    bool on = ecArts.Toggle();
+                    _world.Map?.MarkAllChunksDirty();
+                    ClassicUO.Utility.Logging.Log.Info($"EC Art: {(on ? "ENABLED" : "DISABLED")}");
+                    _world.MessageManager?.HandleMessage(
+                        null,
+                        $"EC Art: {(on ? "ENABLED" : "disabled")}",
+                        "System",
+                        0x35,
+                        Game.Data.MessageType.System,
+                        3,
+                        Game.Data.TextType.SYSTEM);
+                }
+                else
+                {
+                    ClassicUO.Utility.Logging.Log.Info("EC Art: cannot toggle (folder not set or files missing)");
+                }
+                return;
+            }
+
             if (UIManager.KeyboardFocusControl != UIManager.SystemChat.TextBoxControl)
             {
                 return;

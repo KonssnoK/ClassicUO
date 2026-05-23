@@ -42,6 +42,20 @@ namespace ClassicUO.Game.Map
             return null;
         }
 
+        /// <summary>
+        /// Forces every loaded chunk to rebuild its mesh on next frame.
+        /// Used when global rendering state changes (e.g. EC art toggle).
+        /// </summary>
+        public void MarkAllChunksDirty()
+        {
+            if (_terrainChunks == null) return;
+            for (int i = 0; i < _terrainChunks.Length; i++)
+            {
+                var c = _terrainChunks[i];
+                if (c != null) c.Mesh.IsDirty = true;
+            }
+        }
+
         public Chunk GetChunk(int x, int y, bool load = true)
         {
             if (x < 0 || y < 0)
