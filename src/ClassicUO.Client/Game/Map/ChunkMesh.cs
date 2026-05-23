@@ -281,6 +281,22 @@ namespace ClassicUO.Game.Map
             if (IsStaticExcludedFromMesh(graphic, ref itemData))
                 return;
 
+            var ec = Client.Game.UO.EcArts;
+            if (ec != null && ec.IsEnabled)
+            {
+                if (ec.TryGet(graphic + 0x4000, out var ecArt))
+                {
+                    // Route to EC bucket — each EC tile's DDS is its own
+                    // Texture2D so this becomes one draw call per unique tile.
+                    _staticsBuckets.Count(ecArt.Texture);
+                    return;
+                }
+                // No EC art: in diagnostic mode hide the tile entirely; in
+                // normal mode fall back to CC art below.
+                if (ec.DiagnosticMode)
+                    return;
+            }
+
             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
             if (artInfo.Texture == null)
                 return;
@@ -430,6 +446,52 @@ namespace ClassicUO.Game.Map
             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
             if (artInfo.Texture == null)
                 return;
+
+            // EC fast path: per-tile DDS available. Anchor with CC's canvas
+            // dimensions (EC just expanded the canvas; sprite content sits at
+            // the same offset within it). CountStaticLike mirrors this branch.
+            // EC textures are pre-colored, so we suppress partial-hue tinting
+            // (which would double-tint things like leaves on trees).
+            var ec = Client.Game.UO.EcArts;
+            if (ec != null && ec.IsEnabled)
+            {
+                if (ec.TryGet(graphic + 0x4000, out var ecArt))
+                {
+                    int ax, ay;
+                    Rectangle src;
+                    float scaleX, scaleY;
+                    if (ecArt.FromHd)
+                    {
+                        scaleX = ecArt.Scale.X;
+                        scaleY = ecArt.Scale.Y;
+                        int dispW = (int)(ecArt.Source.Width  * scaleX);
+                        int dispH = (int)(ecArt.Source.Height * scaleY);
+                        int worldOffX = ecArt.AnchorX * 44 / 64;
+                        int worldOffY = ecArt.AnchorY * 44 / 64;
+                        ax = (dispW >> 1) - 22 - worldOffX;
+                        ay = dispH - 44 - worldOffY;
+                        src = ecArt.Source;
+                    }
+                    else
+                    {
+                        ax = (artInfo.UV.Width >> 1) - 22;
+                        ay = artInfo.UV.Height - 44;
+                        src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
+                        scaleX = scaleY = 1f;
+                    }
+                    int ecPosX = baseX - ax;
+                    int ecPosY = baseY - ay;
+
+                    int ecIdx = _staticsBuckets.GetNextIndex(ecArt.Texture);
+                    obj.MeshSpriteIndex = ecIdx;
+                    Statics.WriteQuadAt(ecIdx, ecArt.Texture, src, ecPosX, ecPosY, hueVec, depth,
+                                        scaleX: scaleX, scaleY: scaleY);
+                    obj.InChunkMesh = true;
+                    return;
+                }
+                if (ec.DiagnosticMode)
+                    return;
+            }
 
             ref var artIndex = ref Client.Game.UO.FileManager.Arts.File.GetValidRefEntry(graphic + 0x4000);
             artIndex.Width = (short)((artInfo.UV.Width >> 1) - 22);

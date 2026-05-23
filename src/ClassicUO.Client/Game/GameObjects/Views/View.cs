@@ -112,6 +112,62 @@ namespace ClassicUO.Game.GameObjects
         {
             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
 
+            // EC HD/legacy DDS fast path. Falls back to CC art on miss so
+            // partial EC coverage doesn't break rendering.
+            //
+            // `graphic` here is the world-packet item id (0..0xFFFF). The EC
+            // archives — like CC `art.mul` — index statics at `id + 0x4000`,
+            // so we add the offset before the hash lookup.
+            //
+            // EC's DDS canvas is bigger than CC's TGA (e.g. 64x128 vs 44x89),
+            // BUT the sprite content sits at the SAME pixel offset within
+            // the canvas as in CC. So we anchor using CC's canvas dimensions
+            // and draw the whole EC canvas — the two origins coincide.
+            var ec = Client.Game.UO.EcArts;
+            int ecArtIndex = graphic + 0x4000;
+            if (artInfo.Texture != null
+                && ec != null && ec.IsEnabled
+                && ec.TryGet(ecArtIndex, out var ecArt))
+            {
+                int ax, ay;
+                Rectangle src;
+                Vector2 drawScale;
+                if (ecArt.FromHd)
+                {
+                    // HD: EcImage rect from tileart gives src crop; scale
+                    // by 44/64 (EC tile base → CC). AnchorX/Y is a per-tile
+                    // world offset in 64-pixel units — convert to CC pixels.
+                    int dispW = (int)(ecArt.Source.Width  * ecArt.Scale.X);
+                    int dispH = (int)(ecArt.Source.Height * ecArt.Scale.Y);
+                    int worldOffX = ecArt.AnchorX * 44 / 64;
+                    int worldOffY = ecArt.AnchorY * 44 / 64;
+                    ax = (dispW >> 1) - 22 - worldOffX;
+                    ay = dispH - 44 - worldOffY;
+                    src = ecArt.Source;
+                    drawScale = ecArt.Scale;
+                }
+                else
+                {
+                    ax = (artInfo.UV.Width >> 1) - 22;
+                    ay = artInfo.UV.Height - 44;
+                    src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
+                    drawScale = Vector2.One;
+                }
+
+                batcher.Draw(
+                    ecArt.Texture,
+                    new Vector2(x - ax, y - ay),
+                    src,
+                    hue,
+                    0f,
+                    Vector2.Zero,
+                    drawScale,
+                    SpriteEffects.None,
+                    depth + 0.5f
+                );
+                return;
+            }
+
             if (artInfo.Texture != null)
             {
                 ref var index = ref Client.Game.UO.FileManager.Arts.File.GetValidRefEntry(graphic + 0x4000);
@@ -230,11 +286,81 @@ namespace ClassicUO.Game.GameObjects
             bool isWet = false
         )
         {
+            // Capture the original (pre-animation) item id for the EC lookup.
+            // In EC, animated frames are stored INSIDE the base tile's record
+            // (via SUB_9_4) — so looking up post-AnimOffset would land on
+            // some unrelated EC tile and paint random art in place of (e.g.)
+            // animated trees.
+            ushort baseGraphic = graphic;
+
             ref UOFileIndex index = ref Client.Game.UO.FileManager.Arts.File.GetValidRefEntry(graphic + 0x4000);
 
             graphic = (ushort)(graphic + index.AnimOffset);
 
             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
+
+            // EC HD/legacy DDS fast path. EC's canvas is bigger than CC's TGA
+            // but the sprite content sits at the same pixel offset within it,
+            // so we anchor using CC's canvas dimensions and draw the whole
+            // EC canvas. Falls back to CC art on miss.
+            var ec = Client.Game.UO.EcArts;
+            int ecArtIndex = baseGraphic + 0x4000;
+            if (ec != null && ec.IsEnabled)
+            {
+                if (artInfo.Texture != null && ec.TryGet(ecArtIndex, out var ecArt))
+                {
+                    // Legacy: CC and legacy canvases share their (0,0) origin.
+                    // HD: scale the alpha-trimmed bbox to fit CC's canvas
+                    // dimensions, then bottom-center it on the cell foot.
+                    int ax, ay;
+                    Rectangle src;
+                    Vector2 drawScale;
+                    if (ecArt.FromHd)
+                    {
+                        float sx = (float)artInfo.UV.Width  / ecArt.Source.Width;
+                        float sy = (float)artInfo.UV.Height / ecArt.Source.Height;
+                        int dispW = (int)(ecArt.Source.Width  * sx);
+                        int dispH = (int)(ecArt.Source.Height * sy);
+                        ax = (dispW >> 1) - 22;
+                        ay = dispH - 44;
+                        src = ecArt.Source;
+                        drawScale = new Vector2(sx, sy);
+                    }
+                    else
+                    {
+                        ax = (artInfo.UV.Width >> 1) - 22;
+                        ay = artInfo.UV.Height - 44;
+                        src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
+                        drawScale = Vector2.One;
+                    }
+                    var pos = new Vector2(x - ax, y - ay);
+
+                    if (shadow)
+                    {
+                        // Shadow uses the CC texture/UV so the silhouette is
+                        // tight: EC's canvas has lots of transparent padding
+                        // that would otherwise render as an oversized blob.
+                        batcher.DrawShadow(artInfo.Texture, pos, artInfo.UV, false, depth + 0.25f);
+                    }
+                    batcher.Draw(
+                        ecArt.Texture,
+                        pos,
+                        src,
+                        hue,
+                        0f,
+                        Vector2.Zero,
+                        drawScale,
+                        SpriteEffects.None,
+                        depth + 0.5f
+                    );
+                    return;
+                }
+
+                // Diagnostic mode: when EC has no replacement, draw nothing.
+                // The user instantly sees which world statics actually have
+                // EC sprites in this install.
+                if (ec.DiagnosticMode) return;
+            }
 
             if (artInfo.Texture != null)
             {
