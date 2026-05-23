@@ -19,18 +19,30 @@ namespace ClassicUO.Assets
         public UOFileManager(ClientVersion clientVersion, string uoPath) : this(clientVersion, uoPath, new UOFilesOverrideMap())
         {
         }
-        
+
         public UOFileManager(ClientVersion clientVersion, string uoPath, UOFilesOverrideMap overrideMap)
+            : this(clientVersion, uoPath, overrideMap, enhancedClientPath: null)
+        {
+        }
+
+        public UOFileManager(ClientVersion clientVersion, string uoPath, UOFilesOverrideMap overrideMap, string enhancedClientPath)
         {
             Version = clientVersion;
             BasePath = uoPath;
+            EnhancedClientPath = enhancedClientPath ?? string.Empty;
 
             _overrideMap = overrideMap;
             IsUOPInstallation = Version >= ClientVersion.CV_7000 && File.Exists(GetUOFilePath("MainMisc.uop"));
+            HasEnhancedClient = !string.IsNullOrWhiteSpace(EnhancedClientPath)
+                                 && Directory.Exists(EnhancedClientPath)
+                                 && File.Exists(Path.Combine(EnhancedClientPath, "Texture.uop"));
 
             Animations = new AnimationsLoader(this);
             AnimData = new AnimDataLoader(this);
             Arts = new ArtLoader(this);
+            EcArts = new EcArtLoader(this);
+            EcStringDictionary = new EcStringDictionary(this);
+            EcTileArt = new EcTileArtLoader(this);
             Maps = new MapLoader(this);
             Clilocs = new ClilocLoader(this);
             Gumps = new GumpsLoader(this);
@@ -52,11 +64,16 @@ namespace ClassicUO.Assets
 
         public ClientVersion Version { get; }
         public string BasePath { get; }
+        public string EnhancedClientPath { get; }
         public bool IsUOPInstallation { get; private set; }
+        public bool HasEnhancedClient { get; private set; }
 
         public AnimationsLoader Animations { get; }
         public AnimDataLoader AnimData { get; }
         public ArtLoader Arts { get; }
+        public EcArtLoader EcArts { get; }
+        public EcStringDictionary EcStringDictionary { get; }
+        public EcTileArtLoader EcTileArt { get; }
         public MapLoader Maps { get; set; }
         public ClilocLoader Clilocs { get; }
         public GumpsLoader Gumps { get; }
@@ -82,6 +99,9 @@ namespace ClassicUO.Assets
             Animations.Dispose();
             AnimData.Dispose();
             Arts.Dispose();
+            EcArts.Dispose();
+            EcStringDictionary.Dispose();
+            EcTileArt.Dispose();
             Maps.Dispose();
             Clilocs.Dispose();
             Gumps.Dispose();
@@ -147,6 +167,9 @@ namespace ClassicUO.Assets
             Animations.Load();
             AnimData.Load();
             Arts.Load();
+            EcArts.Load();
+            EcStringDictionary.Load();
+            EcTileArt.Load();
             Maps.Load();
             Clilocs.Load(lang);
             Gumps.Load();
