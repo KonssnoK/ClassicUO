@@ -265,3 +265,8 @@ __pycache__/
 *.pyc
 /.svn
 Data
+tools/ghidra/
+tools/ec_research/.venv/
+tools/ec_research/out/
+
+tools/
