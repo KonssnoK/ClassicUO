@@ -462,8 +462,6 @@ namespace ClassicUO.Game.Map
                     float scaleX, scaleY;
                     if (ecArt.FromHd)
                     {
-                        // Bottom-right of HD content aligned to bottom-right
-                        // of CC content on screen — same baseline as CC.
                         const float HD_TO_CC = 1f / 1.5f;
                         var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
                         int ccCanvasW = artInfo.UV.Width;
@@ -476,6 +474,17 @@ namespace ClassicUO.Game.Map
                         ay = baseY - (contentBR_Y - dispH);
                         scaleX = scaleY = HD_TO_CC;
                         src = ecArt.Source;
+                        // HD textures are typically already color-baked
+                        // (per-pixel R != G != B). Applying CC's hue
+                        // shader on top tints based on R only, washing
+                        // out the natural color. When no mask is shipped
+                        // (EC's HAS_HUEMASK_TEX == 0 path), the HD
+                        // texture is meant to render as-is — no runtime
+                        // tinting.
+                        if (!Client.Game.UO.EcArts.HasHueMask(graphic + 0x4000))
+                        {
+                            hueVec.Y = ShaderHueTranslator.SHADER_NONE;
+                        }
                     }
                     else
                     {

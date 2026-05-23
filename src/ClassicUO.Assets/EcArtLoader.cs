@@ -129,9 +129,22 @@ namespace ClassicUO.Assets
         public bool TryGetMaskByArtId(int artId, out byte[] dds)
         {
             dds = null;
-            if (artId < 0 || _legacy == null) return false;
+            if (artId < 0) return false;
             int itemId = artId >= 0x4000 ? artId - 0x4000 : artId;
-            return TryReadFromArchive(_legacy, "build/tileartlegacy/", 1_000_000 + itemId, out dds);
+            // Both archives use the same {1_000_000+id:08}.dds naming for
+            // the per-sprite hue mask. Try HD first (matches our HD-first
+            // texture preference); fall back to legacy.
+            if (_enhanced != null
+                && TryReadFromArchive(_enhanced, "build/worldart/", 1_000_000 + itemId, out dds))
+            {
+                return true;
+            }
+            if (_legacy != null
+                && TryReadFromArchive(_legacy, "build/tileartlegacy/", 1_000_000 + itemId, out dds))
+            {
+                return true;
+            }
+            return false;
         }
 
         /// <summary>

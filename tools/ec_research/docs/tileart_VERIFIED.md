@@ -346,7 +346,33 @@ FNA/MonoGame. We use the same `DecodeDxt5Rgba` helper that the partial-
 hue mask preprocessing uses to decode HD on the CPU and compute the
 visible bbox correctly.
 
-### Open HD questions
+### Open HD questions — TO FIX LATER
+
+- **Tile-pair anomaly (5649 vs 5650)** — these two banner tiles have
+  **identical tileart records** except for the `TileID` field
+  (same flags = `0xC1`, same `EcImage = (0,0,0,0,0,0)`, same
+  `LegacyImage = (0,0,44,44,0,0)`, same record length). The only real
+  difference is that tile 5650 has no HD DDS in `Texture.uop` while
+  5649 does. Result: 5650 falls back to legacy (correct), 5649 uses
+  the HD path and ends up misplaced + uncolored. There is nothing
+  "special" about the banner's record — the misplacement comes from
+  the generic HD canvas / CC canvas anchor mismatch. A future fix
+  needs per-tile HD bbox alignment OR explicit per-tile metadata we
+  haven't decoded yet.
+
+- **HD hue on pre-colored textures** — most HD tiles have color baked
+  per-pixel (e.g. tile 5649 banner: pixels are `(R=57, G=56, B=74)` —
+  already blue). CC's hue shader uses only `color.r` to index the hue
+  table, which washes the natural color when there's no `R==G==B`
+  match. With `SHADER_NONE` the texture shows AS-IS, but for tile 5649
+  in CC it's tinted to a brighter blue via the legacy mask path. EC's
+  shader_04 says when `HAS_HUEMASK_TEX == 0` it uses `colorout = hue`
+  (full replace), but our get_rgb implementation doesn't produce the
+  same brightening effect because of the single-channel indexing.
+  Likely fix: extend the shader's no-mask hue path to use a different
+  channel or a brightness measure, OR ensure HD tiles always have a
+  mask shipped (artist-side).
+
 
 - **Tiles where HD content isn't at canvas (0,0)** — fallback would be
   to alpha-trim the HD DDS (decoding DXT5 on CPU since

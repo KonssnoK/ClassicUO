@@ -160,11 +160,16 @@ namespace ClassicUO.Game.GameObjects
                     drawScale = Vector2.One;
                 }
 
+                Vector3 ecHue = hue;
+                if (ecArt.FromHd && !ec.HasHueMask(ecArtIndex))
+                {
+                    ecHue.Y = ShaderHueTranslator.SHADER_NONE;
+                }
                 batcher.Draw(
                     ecArt.Texture,
                     new Vector2(x - ax, y - ay),
                     src,
-                    hue,
+                    ecHue,
                     0f,
                     Vector2.Zero,
                     drawScale,
@@ -323,14 +328,18 @@ namespace ClassicUO.Game.GameObjects
                     Vector2 drawScale;
                     if (ecArt.FromHd)
                     {
-                        float sx = (float)artInfo.UV.Width  / ecArt.Source.Width;
-                        float sy = (float)artInfo.UV.Height / ecArt.Source.Height;
-                        int dispW = (int)(ecArt.Source.Width  * sx);
-                        int dispH = (int)(ecArt.Source.Height * sy);
-                        ax = (dispW >> 1) - 22;
-                        ay = dispH - 44;
+                        const float HD_TO_CC = 1f / 1.5f;
+                        var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)baseGraphic);
+                        int ccCanvasW = artInfo.UV.Width;
+                        int ccCanvasH = artInfo.UV.Height;
+                        int contentBR_X = x - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
+                        int contentBR_Y = y - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
+                        int dispW = (int)(ecArt.Source.Width  * HD_TO_CC);
+                        int dispH = (int)(ecArt.Source.Height * HD_TO_CC);
+                        ax = x - (contentBR_X - dispW);
+                        ay = y - (contentBR_Y - dispH);
                         src = ecArt.Source;
-                        drawScale = new Vector2(sx, sy);
+                        drawScale = new Vector2(HD_TO_CC, HD_TO_CC);
                     }
                     else
                     {
@@ -348,11 +357,16 @@ namespace ClassicUO.Game.GameObjects
                         // that would otherwise render as an oversized blob.
                         batcher.DrawShadow(artInfo.Texture, pos, artInfo.UV, false, depth + 0.25f);
                     }
+                    Vector3 ecHue = hue;
+                    if (ecArt.FromHd && !ec.HasHueMask(ecArtIndex))
+                    {
+                        ecHue.Y = ShaderHueTranslator.SHADER_NONE;
+                    }
                     batcher.Draw(
                         ecArt.Texture,
                         pos,
                         src,
-                        hue,
+                        ecHue,
                         0f,
                         Vector2.Zero,
                         drawScale,

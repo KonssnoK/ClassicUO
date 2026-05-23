@@ -55,6 +55,13 @@ namespace ClassicUO.Renderer.Arts
         public int MissNoSpriteIdCount;
         public int MissDdsCount;
 
+        // True when the cached texture went through full mask preprocessing
+        // (= shader's strict R==G==B partial-hue test will work).
+        // When false, the renderer should use SHADER_HUED instead, matching
+        // EC's "no-mask = full hue" behaviour in shader_04.hlsl.
+        public readonly System.Collections.Generic.HashSet<int> _hasMask = new();
+        public bool HasHueMask(int artId) => _hasMask.Contains(artId);
+
         /// <summary>
         /// Whether EC art is loaded and the renderer is allowed to swap it in.
         /// Settable at runtime — flip this to A/B compare CC vs EC live.
@@ -162,6 +169,7 @@ namespace ClassicUO.Renderer.Arts
             // (FNA's Texture2D.GetData on a DXT5 surface returns the raw
             // compressed blocks, not decoded pixels — that's why we decode
             // the DDS bytes directly here.)
+            bool maskApplied = false;
             if (_arts.TryGetMaskByArtId(artId, out byte[] maskDds))
             {
                 try
@@ -171,6 +179,7 @@ namespace ClassicUO.Renderer.Arts
                     {
                         tex.Dispose();
                         tex = converted;
+                        maskApplied = true;
                     }
                 }
                 catch (Exception ex)
@@ -178,6 +187,10 @@ namespace ClassicUO.Renderer.Arts
                     Log.Warn($"EcArt: mask preprocessing failed for id {artId}: {ex.Message}");
                 }
             }
+            if (maskApplied)
+                _hasMask.Add(artId);
+            else
+                _hasMask.Remove(artId);
 
             // Source rect:
             //   Legacy: whole canvas (canvas-origin shares with CC).
