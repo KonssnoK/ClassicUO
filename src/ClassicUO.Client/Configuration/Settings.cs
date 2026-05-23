@@ -44,6 +44,17 @@ namespace ClassicUO.Configuration
 
         [JsonPropertyName("ultimaonlinedirectory")] public string UltimaOnlineDirectory { get; set; } = "";
 
+        // Optional. When set, the client loads enhanced statics + gumps from
+        // Enhanced Client UOPs (Texture.uop / LegacyTexture.uop / GumpArtMask.uop)
+        // in this folder, falling back to the classic art for anything missing.
+        [JsonPropertyName("enhanced_client_directory")] public string EnhancedClientDirectory { get; set; } = "";
+
+        // Master switch for using EC art in place of classic statics. The EC
+        // files still get loaded when EnhancedClientDirectory is set, but the
+        // renderer only swaps them in when this flag is true. Press F11 in
+        // game to flip it live and compare side-by-side.
+        [JsonPropertyName("use_enhanced_art")] public bool UseEnhancedArt { get; set; } = false;
+
         [JsonPropertyName("profilespath")] public string ProfilesPath { get; set; } = string.Empty;
 
         [JsonPropertyName("clientversion")] public string ClientVersion { get; set; } = string.Empty;
