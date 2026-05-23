@@ -462,14 +462,19 @@ namespace ClassicUO.Game.Map
                     float scaleX, scaleY;
                     if (ecArt.FromHd)
                     {
-                        scaleX = ecArt.Scale.X;
-                        scaleY = ecArt.Scale.Y;
-                        int dispW = (int)(ecArt.Source.Width  * scaleX);
-                        int dispH = (int)(ecArt.Source.Height * scaleY);
-                        int worldOffX = ecArt.AnchorX * 44 / 64;
-                        int worldOffY = ecArt.AnchorY * 44 / 64;
-                        ax = (dispW >> 1) - 22 - worldOffX;
-                        ay = dispH - 44 - worldOffY;
+                        // Bottom-right of HD content aligned to bottom-right
+                        // of CC content on screen — same baseline as CC.
+                        const float HD_TO_CC = 1f / 1.5f;
+                        var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
+                        int ccCanvasW = artInfo.UV.Width;
+                        int ccCanvasH = artInfo.UV.Height;
+                        int contentBR_X = baseX - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
+                        int contentBR_Y = baseY - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
+                        int dispW = (int)(ecArt.Source.Width  * HD_TO_CC);
+                        int dispH = (int)(ecArt.Source.Height * HD_TO_CC);
+                        ax = baseX - (contentBR_X - dispW);
+                        ay = baseY - (contentBR_Y - dispH);
+                        scaleX = scaleY = HD_TO_CC;
                         src = ecArt.Source;
                     }
                     else

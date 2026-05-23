@@ -112,23 +112,22 @@ namespace ClassicUO.Renderer.Arts
             if (_missing.Contains(artId)) return false;
             if (_cache.TryGetValue(artId, out art)) return art.IsValid;
 
-            // Direct art_id lookup. EC convention (from KonssnoK's Unity
-            // reference): only use HD when EcImage (0x4D) is populated;
-            // otherwise legacy. Match that here.
+            // Prefer HD when DDS exists; fall back to legacy.
+            // EcImage rect represents only a SUB-PIECE of the HD canvas
+            // (EC treats multi-cell objects as separate tiles, while CC
+            // shows the whole object in one tile). So we don't use the
+            // EcImage rect — we alpha-trim the whole HD canvas and render
+            // that. The render code aligns by CC content bbox.
             EcTileArtData meta = null;
             _tileart?.TryGet(artId, out meta);
-            bool wantHd = meta != null
-                          && meta.EcImage.Width  > 0
-                          && meta.EcImage.Height > 0;
 
             byte[] dds = null;
             bool fromHd = false;
-            if (wantHd)
+            if (_arts.TryGetHdByArtId(artId, out dds))
             {
-                _arts.TryGetHdByArtId(artId, out dds);
-                if (dds != null) fromHd = true;
+                fromHd = true;
             }
-            if (dds == null)
+            else
             {
                 _arts.TryGetLegacyByArtId(artId, out dds);
             }
@@ -180,33 +179,21 @@ namespace ClassicUO.Renderer.Arts
                 }
             }
 
-            // Source rect + world anchor:
-            //   Legacy: whole canvas, no offset.
-            //   HD: source = (Xstart, 0, Xend - Xstart, Yend) per Unity ref
-            //       (Ystart isn't used for the crop). Anchor = (offX, offY)
-            //       from the same 6-int block — these are in 64-pixel units
-            //       and need scaling to CC's 44-pixel cells.
+            // Source rect:
+            //   Legacy: whole canvas (canvas-origin shares with CC).
+            //   HD: alpha-trim the bbox so we know where the actual content
+            //       sits in the larger HD canvas. The renderer scales the
+            //       bbox to match CC's canvas dimensions per-tile.
             int srcX = 0, srcY = 0, srcW = tex.Width, srcH = tex.Height;
             int anchorX = 0, anchorY = 0;
             Vector2 scale = Vector2.One;
 
-            if (fromHd && meta != null && meta.EcImage.Width > 0 && meta.EcImage.Height > 0)
+            if (fromHd)
             {
-                var img = meta.EcImage;
-                // Per Ghidra FUN_00459390 HD branch: rect bounds are
-                // INCLUSIVE — width = Xend - Xstart + 1, height = Yend - Ystart + 1.
-                int x0 = img.X0, y0 = img.Y0;
-                int x1 = img.X1 + 1, y1 = img.Y1 + 1;
-                if (x0 >= 0 && y0 >= 0 && x1 <= tex.Width && y1 <= tex.Height)
-                {
-                    srcX = x0;
-                    srcY = y0;
-                    srcW = x1 - x0;
-                    srcH = y1 - y0;
-                    anchorX = img.PixelsXOffset;
-                    anchorY = img.PixelsYOffset;
-                    scale = new Vector2(44f / 64f, 44f / 64f);
-                }
+                // Alpha-trim the HD canvas to its visible content. We
+                // decode the DDS bytes on the CPU because Texture2D.GetData
+                // on a DXT5 surface returns raw compressed blocks.
+                (srcX, srcY, srcW, srcH) = ComputeVisibleBoundsFromDds(dds, tex.Width, tex.Height);
             }
 
             art = new EcRenderArt
@@ -223,14 +210,6 @@ namespace ClassicUO.Renderer.Arts
             _cache[artId] = art;
 
             HitCount++;
-            if (HitCount <= 60)
-            {
-                int itemId = artId >= 0x4000 ? artId - 0x4000 : artId;
-                Log.Info($"EcArt HIT #{HitCount}: art_id={artId} (item_id={itemId}) "
-                         + $"{(fromHd ? "HD" : "Legacy")} "
-                         + $"dds={tex.Width}x{tex.Height} "
-                         + $"src=({srcX},{srcY},{srcW}x{srcH})");
-            }
             return true;
         }
 
@@ -278,6 +257,34 @@ namespace ClassicUO.Renderer.Arts
             var converted = new Texture2D(_device, width, height, false, SurfaceFormat.Color);
             converted.SetData(_scanBuf, 0, total);
             return converted;
+        }
+
+        /// <summary>
+        /// Returns the alpha-trimmed visible bbox of a DXT5 DDS. Decodes
+        /// the DDS on the CPU (FNA's GetData on a compressed surface
+        /// returns raw block bytes).
+        /// </summary>
+        private static (int X, int Y, int W, int H) ComputeVisibleBoundsFromDds(byte[] dds, int width, int height)
+        {
+            byte[] rgba = DecodeDxt5Rgba(dds, width, height);
+            if (rgba == null) return (0, 0, width, height);
+            int minX = width, minY = height, maxX = -1, maxY = -1;
+            for (int y = 0; y < height; y++)
+            {
+                int row = y * width * 4;
+                for (int x = 0; x < width; x++)
+                {
+                    if (rgba[row + x * 4 + 3] != 0)
+                    {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            if (maxX < 0) return (0, 0, width, height);
+            return (minX, minY, maxX - minX + 1, maxY - minY + 1);
         }
 
         /// <summary>

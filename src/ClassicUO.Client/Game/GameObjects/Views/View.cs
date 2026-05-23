@@ -134,17 +134,23 @@ namespace ClassicUO.Game.GameObjects
                 Vector2 drawScale;
                 if (ecArt.FromHd)
                 {
-                    // HD: EcImage rect from tileart gives src crop; scale
-                    // by 44/64 (EC tile base → CC). AnchorX/Y is a per-tile
-                    // world offset in 64-pixel units — convert to CC pixels.
-                    int dispW = (int)(ecArt.Source.Width  * ecArt.Scale.X);
-                    int dispH = (int)(ecArt.Source.Height * ecArt.Scale.Y);
-                    int worldOffX = ecArt.AnchorX * 44 / 64;
-                    int worldOffY = ecArt.AnchorY * 44 / 64;
-                    ax = (dispW >> 1) - 22 - worldOffX;
-                    ay = dispH - 44 - worldOffY;
+                    // Align HD content's BOTTOM-RIGHT to CC content's
+                    // bottom-right on screen so the figure stands on the
+                    // same baseline as CC (pillars sit on their pedestals,
+                    // etc.). HD content lives at HD canvas (0,0) for most
+                    // tiles and naturally extends further when scaled.
+                    const float HD_TO_CC = 1f / 1.5f;
+                    var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
+                    int ccCanvasW = artInfo.UV.Width;
+                    int ccCanvasH = artInfo.UV.Height;
+                    int contentBR_X = x - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
+                    int contentBR_Y = y - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
+                    int dispW = (int)(ecArt.Source.Width  * HD_TO_CC);
+                    int dispH = (int)(ecArt.Source.Height * HD_TO_CC);
+                    ax = x - (contentBR_X - dispW);
+                    ay = y - (contentBR_Y - dispH);
                     src = ecArt.Source;
-                    drawScale = ecArt.Scale;
+                    drawScale = new Vector2(HD_TO_CC, HD_TO_CC);
                 }
                 else
                 {
