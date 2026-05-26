@@ -284,6 +284,12 @@ namespace ClassicUO.Game.Map
             var ec = Client.Game.UO.EcArts;
             if (ec != null && ec.IsEnabled)
             {
+                // Absorbed tile: a consecutive sibling sharing the same
+                // tileart name owns the HD asset and draws the whole group.
+                // Skip this tile entirely so the legacy fragment doesn't
+                // double up next to the full HD piece (e.g. banner 5649/5650).
+                if (ec.IsAbsorbedByHdSibling(graphic + 0x4000))
+                    return;
                 if (ec.TryGet(graphic + 0x4000, out var ecArt))
                 {
                     // Route to EC bucket — each EC tile's DDS is its own
@@ -455,6 +461,8 @@ namespace ClassicUO.Game.Map
             var ec = Client.Game.UO.EcArts;
             if (ec != null && ec.IsEnabled)
             {
+                if (ec.IsAbsorbedByHdSibling(graphic + 0x4000))
+                    return;
                 if (ec.TryGet(graphic + 0x4000, out var ecArt))
                 {
                     int ax, ay;
@@ -462,18 +470,35 @@ namespace ClassicUO.Game.Map
                     float scaleX, scaleY;
                     if (ecArt.FromHd)
                     {
-                        const float HD_TO_CC = 1f / 1.5f;
-                        var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
-                        int ccCanvasW = artInfo.UV.Width;
-                        int ccCanvasH = artInfo.UV.Height;
-                        int contentBR_X = baseX - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
-                        int contentBR_Y = baseY - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
-                        int dispW = (int)(ecArt.Source.Width  * HD_TO_CC);
-                        int dispH = (int)(ecArt.Source.Height * HD_TO_CC);
-                        ax = baseX - (contentBR_X - dispW);
-                        ay = baseY - (contentBR_Y - dispH);
-                        scaleX = scaleY = HD_TO_CC;
+                        // Truncating cast — matches the prior renderer to
+                        // the pixel; switching to Math.Round here shifts
+                        // walls 1 px on cases like 52*0.667 = 34.667.
+                        int dispW = (int)(ecArt.Source.Width  * ecArt.Scale.X);
+                        int dispH = (int)(ecArt.Source.Height * ecArt.Scale.Y);
+                        if (ecArt.UsesCcAnchor)
+                        {
+                            // Alpha-trim HD path: align HD content's bottom-
+                            // right to CC content's bottom-right so off-
+                            // center sprites (walls, statues) stand where
+                            // CC put them.
+                            var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
+                            int ccCanvasW = artInfo.UV.Width;
+                            int ccCanvasH = artInfo.UV.Height;
+                            int contentBR_X = baseX - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
+                            int contentBR_Y = baseY - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
+                            ax = baseX - (contentBR_X - dispW);
+                            ay = baseY - (contentBR_Y - dispH);
+                        }
+                        else
+                        {
+                            // EcImage-crop or terrain path: source is
+                            // naturally bottom-center on the cell.
+                            ax = (dispW >> 1) - 22;
+                            ay = dispH - 44;
+                        }
                         src = ecArt.Source;
+                        scaleX = ecArt.Scale.X;
+                        scaleY = ecArt.Scale.Y;
                         // HD textures are typically already color-baked
                         // (per-pixel R != G != B). Applying CC's hue
                         // shader on top tints based on R only, washing

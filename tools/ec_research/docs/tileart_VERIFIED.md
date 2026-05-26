@@ -155,19 +155,60 @@ correct world position, we use **CC's canvas dimensions** in the standard
 `(W/2 - 22, H - 44)` anchor math and draw the whole EC DDS canvas at that
 position. The visible content lands exactly where CC put it.
 
-### 6-int blocks at 0x4D and 0x65 — not what they appear
+### 6-int blocks at 0x4D and 0x65 — partial-truth, still confusing
 
 The wiki labels these `EcSpriteLayout`/`LegacySpriteLayout` ("bounds +
-anchor"), but empirically they're **stale/placeholder for most tiles**:
+anchor"). Ghidra (`FUN_0051af20`, the legacy-art resolver) does read
+LegacyImage and compute W=X1-X0, H=Y1-Y0:
 
-- Tiles 2 and 3 both have `LegacyImage = (0, 0, 45, 46, 0, 0)` despite
-  being visually distinct objects with very different in-canvas positions.
-- Tile 200 has `(0, 0, 44, 44, 0, 0)` but the stone-wall content fills
-  32×108 of the DDS — nowhere near 44×44.
+```c
+// vtable call fills X0,Y0,X1,Y1 from the tileart record's LegacyImage
+*param_5 = uVar7;          // OUT width  = X1 - X0
+*param_4 = DAT_00c9d1a0;   // OUT scale  = 1.0  (native)
+*param_6 = uVar8;          // OUT height = Y1 - Y0
 
-The EC team didn't fill in real per-tile values for the static catalog,
-so we ignore these for placement. The canvas-origin alignment described
-above handles every tile we tested correctly.
+// fit-to-cell when oversized
+if (cell_w < width || cell_h < height) {
+    scale = min(cell_w / width, cell_h / height);
+    width  = round(width  * scale);
+    height = round(height * scale);
+}
+```
+
+So `LegacyImage` is the **authoritative crop rect** inside the 64×64
+legacy DDS, and the resolver scales the asset down to fit a 44×44 cell
+when either dimension is larger. The early dismissal happened because:
+- ~70 % of tiles ship `(0, 0, 44, 44, 0, 0)` (the unscaled "fill the
+  cell" default) — those tiles have the artwork tucked into the top-left
+  44×44 of their canvas, so drawing the whole canvas LOOKED right.
+- Wall/statue tiles whose content sits *outside* a 44×44 box (e.g.
+  tile 200 with content 32×108) reveal the breakage immediately: their
+  `LegacyImage` is still default-`44×44`, the artwork extends below,
+  and the visible alpha-bbox in the canvas is the truth — those tiles
+  have legitimately stale `LegacyImage` and our render either crops them
+  wrong or relies on alpha-trim instead.
+
+| tile  | LegacyImage  | result                                            |
+|------:|--------------|---------------------------------------------------|
+| 1409  | (0,0,44,44)  | native, src=(0,0,44,44) within 64×64 DDS           |
+| 1410  | (0,0,44,35)  | native, src=(0,0,44,35) — shorter, bottom-aligned  |
+| 1411  | (0,0,46,54)  | scale = 44/54 ≈ 0.815 → 37×44 displayed             |
+| 1414  | (0,0,48,63)  | scale = 44/63 ≈ 0.698 → 33×44 displayed             |
+
+**Tried-and-reverted**: implementing the rect as a source-crop within
+the 64×64 DDS (`src = (X0,Y0,W,H)` + fit-to-44 scale) produced no
+visible improvement for roof tiles 1410/1411/1414 in-game. Either the
+rect encodes display dimensions / hit-test (not where to crop in the
+DDS), or the renderer combines it with another field we haven't
+located. Reverted; legacy path stays on full-canvas src for now.
+
+### EcImage at 0x4D — still TBD
+
+For HD tiles, the EcImage rect (`(0,0,0,0)` for ~70 % of statics,
+populated for the rest) is **NOT in HD-canvas pixels** — using it as a
+raw source crop on populated HD tiles broke every one of them. The
+coord system is still TBD (likely CC-pixel space or sub-piece coords),
+so the HD path falls back to alpha-trim while we investigate.
 
 ## C# implementation map (updated)
 

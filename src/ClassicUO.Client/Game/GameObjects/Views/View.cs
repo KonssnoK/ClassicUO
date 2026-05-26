@@ -125,6 +125,8 @@ namespace ClassicUO.Game.GameObjects
             // and draw the whole EC canvas — the two origins coincide.
             var ec = Client.Game.UO.EcArts;
             int ecArtIndex = graphic + 0x4000;
+            if (ec != null && ec.IsEnabled && ec.IsAbsorbedByHdSibling(ecArtIndex))
+                return;
             if (artInfo.Texture != null
                 && ec != null && ec.IsEnabled
                 && ec.TryGet(ecArtIndex, out var ecArt))
@@ -134,23 +136,25 @@ namespace ClassicUO.Game.GameObjects
                 Vector2 drawScale;
                 if (ecArt.FromHd)
                 {
-                    // Align HD content's BOTTOM-RIGHT to CC content's
-                    // bottom-right on screen so the figure stands on the
-                    // same baseline as CC (pillars sit on their pedestals,
-                    // etc.). HD content lives at HD canvas (0,0) for most
-                    // tiles and naturally extends further when scaled.
-                    const float HD_TO_CC = 1f / 1.5f;
-                    var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
-                    int ccCanvasW = artInfo.UV.Width;
-                    int ccCanvasH = artInfo.UV.Height;
-                    int contentBR_X = x - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
-                    int contentBR_Y = y - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
-                    int dispW = (int)(ecArt.Source.Width  * HD_TO_CC);
-                    int dispH = (int)(ecArt.Source.Height * HD_TO_CC);
-                    ax = x - (contentBR_X - dispW);
-                    ay = y - (contentBR_Y - dispH);
+                    int dispW = (int)(ecArt.Source.Width  * ecArt.Scale.X);
+                    int dispH = (int)(ecArt.Source.Height * ecArt.Scale.Y);
+                    if (ecArt.UsesCcAnchor)
+                    {
+                        var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
+                        int ccCanvasW = artInfo.UV.Width;
+                        int ccCanvasH = artInfo.UV.Height;
+                        int contentBR_X = x - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
+                        int contentBR_Y = y - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
+                        ax = x - (contentBR_X - dispW);
+                        ay = y - (contentBR_Y - dispH);
+                    }
+                    else
+                    {
+                        ax = (dispW >> 1) - 22;
+                        ay = dispH - 44;
+                    }
                     src = ecArt.Source;
-                    drawScale = new Vector2(HD_TO_CC, HD_TO_CC);
+                    drawScale = ecArt.Scale;
                 }
                 else
                 {
@@ -318,6 +322,8 @@ namespace ClassicUO.Game.GameObjects
             int ecArtIndex = baseGraphic + 0x4000;
             if (ec != null && ec.IsEnabled)
             {
+                if (ec.IsAbsorbedByHdSibling(ecArtIndex))
+                    return;
                 if (artInfo.Texture != null && ec.TryGet(ecArtIndex, out var ecArt))
                 {
                     // Legacy: CC and legacy canvases share their (0,0) origin.
@@ -328,18 +334,25 @@ namespace ClassicUO.Game.GameObjects
                     Vector2 drawScale;
                     if (ecArt.FromHd)
                     {
-                        const float HD_TO_CC = 1f / 1.5f;
-                        var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)baseGraphic);
-                        int ccCanvasW = artInfo.UV.Width;
-                        int ccCanvasH = artInfo.UV.Height;
-                        int contentBR_X = x - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
-                        int contentBR_Y = y - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
-                        int dispW = (int)(ecArt.Source.Width  * HD_TO_CC);
-                        int dispH = (int)(ecArt.Source.Height * HD_TO_CC);
-                        ax = x - (contentBR_X - dispW);
-                        ay = y - (contentBR_Y - dispH);
+                        int dispW = (int)Math.Round(ecArt.Source.Width  * ecArt.Scale.X);
+                        int dispH = (int)Math.Round(ecArt.Source.Height * ecArt.Scale.Y);
+                        if (ecArt.UsesCcAnchor)
+                        {
+                            var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)baseGraphic);
+                            int ccCanvasW = artInfo.UV.Width;
+                            int ccCanvasH = artInfo.UV.Height;
+                            int contentBR_X = x - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
+                            int contentBR_Y = y - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
+                            ax = x - (contentBR_X - dispW);
+                            ay = y - (contentBR_Y - dispH);
+                        }
+                        else
+                        {
+                            ax = (dispW >> 1) - 22;
+                            ay = dispH - 44;
+                        }
                         src = ecArt.Source;
-                        drawScale = new Vector2(HD_TO_CC, HD_TO_CC);
+                        drawScale = ecArt.Scale;
                     }
                     else
                     {

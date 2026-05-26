@@ -33,6 +33,12 @@ namespace ClassicUO.Renderer.Arts
         public int AnchorX;
         public int AnchorY;
         public bool FromHd;
+        // True when Source is an alpha-trimmed HD bbox (walls, statues,
+        // foliage). The render code uses CC-bbox alignment to position the
+        // sprite where CC put it — bottom-center on the cell isn't enough
+        // for off-center HD content. False for terrain tiles and for the
+        // EcImage-crop case (which is naturally bottom-center).
+        public bool UsesCcAnchor;
         // Per-tile draw scale (1.0 for legacy; HD uses 1/tileart.0x10 etc.
         // to fit HD pixels into CC-equivalent world dimensions).
         public Vector2 Scale;
@@ -61,6 +67,90 @@ namespace ClassicUO.Renderer.Arts
         // EC's "no-mask = full hue" behaviour in shader_04.hlsl.
         public readonly System.Collections.Generic.HashSet<int> _hasMask = new();
         public bool HasHueMask(int artId) => _hasMask.Contains(artId);
+
+        // Per-tile "master" resolution. Many EC tile_ids don't ship their own
+        // build/worldart/{id}.dds — they're meant to crop a sub-rect of a
+        // SHARED master texture that belongs to a sibling tile_id with the
+        // same SUB_9_7 source name (string_dictionary entry). Per Ghidra
+        // FUN_00459390: the asset's rect in `in_EAX[0..5]` comes from
+        // EcImage at 0x4D (HD path) with X1+1/Y1+1 (inclusive→exclusive);
+        // when EcImage is unpopulated the engine falls back to (0,0,44,44).
+        // FUN_0051a840 then fit-to-44 scales the crop when oversized.
+        //
+        // We build a tile_id → master_art_id map at startup by walking 0..16383
+        // forward, tracking "for this StringId, what was the last tile_id with
+        // an own HD DDS?". Tiles between HD owners point back to the previous
+        // owner; tiles WITH HD become a new master (so e.g. tile 1414's own
+        // HD ends the slate-roof group and starts a new one).
+        private System.Collections.Generic.Dictionary<int, int> _masterMap;
+        private readonly object _masterInitLock = new();
+
+        public bool IsAbsorbedByHdSibling(int artId)
+        {
+            // Banner-style absorption: a tile gets "absorbed" when (a) it
+            // has no HD of its own, (b) a sibling in the same sd_off group
+            // ships HD (i.e. there IS a master), AND (c) this tile has no
+            // EcImage rect — without a crop, there's nothing meaningful to
+            // sample from the master. The HD-owning sibling renders the
+            // whole multi-cell sprite; this absorbed cell should render
+            // nothing. Without this check, tile 5650 would render the
+            // top-left 44×44 of 5649's full banner, duplicating content.
+            if (!IsEnabled || _tileart == null || _arts == null) return false;
+            if (_arts.TryGetHdByArtId(artId, out _)) return false;  // own HD
+            if (!_tileart.TryGet(artId, out var meta) || meta == null) return false;
+            if (meta.EcImage.IsPopulated) return false;             // crop specified
+            int master = GetMasterArtId(artId);
+            return master >= 0 && master != artId;
+        }
+
+        private void EnsureMasterMap()
+        {
+            if (_masterMap != null) return;
+            lock (_masterInitLock)
+            {
+                if (_masterMap != null) return;
+                var map = new System.Collections.Generic.Dictionary<int, int>();
+                // Group by RESOLVED string text, not by raw sd_off — each
+                // tile points to its own offset that lands within the same
+                // Pascal-style string entry. tile 1407 sd_off=48860 and
+                // tile 1408 sd_off=48864 both resolve to
+                // "Data\\TileArtEnhanced\\500.tga" — they must share a master.
+                var dict = _tileart.FileManager.EcStringDictionary;
+                var lastHdOwnerForString = new System.Collections.Generic.Dictionary<string, int>();
+                for (int item = 0; item <= 0x3FFF; item++)
+                {
+                    int aid = 0x4000 + item;
+                    if (!_tileart.TryGet(aid, out var meta) || meta == null) continue;
+                    string key = dict?.GetStringAtOffset((int)meta.StringId);
+                    if (string.IsNullOrEmpty(key)) continue;
+                    bool hasHd = _arts.TryGetHdByArtId(aid, out _);
+                    if (hasHd)
+                    {
+                        lastHdOwnerForString[key] = aid;
+                        map[aid] = aid;   // own master
+                    }
+                    else if (lastHdOwnerForString.TryGetValue(key, out int masterAid))
+                    {
+                        map[aid] = masterAid;
+                    }
+                    // else: no master; tile will use legacy fallback
+                }
+                _masterMap = map;
+            }
+        }
+
+        /// <summary>
+        /// For tiles in a shared-master group, returns the art_id whose own
+        /// HD DDS holds the master texture. Returns the input artId if the
+        /// tile itself owns an HD; returns -1 when no master exists in this
+        /// build (the tile should fall back to legacy).
+        /// </summary>
+        public int GetMasterArtId(int artId)
+        {
+            if (!IsEnabled || _tileart == null || _arts == null) return -1;
+            EnsureMasterMap();
+            return _masterMap.TryGetValue(artId, out int master) ? master : -1;
+        }
 
         /// <summary>
         /// Whether EC art is loaded and the renderer is allowed to swap it in.
@@ -128,11 +218,40 @@ namespace ClassicUO.Renderer.Arts
             EcTileArtData meta = null;
             _tileart?.TryGet(artId, out meta);
 
+            // HD resolution: this tile's master may be a sibling's HD DDS
+            // (FUN_00459390 / FUN_0051a840 — the engine picks the rect from
+            // EcImage but the texture handle is shared across the group).
+            int masterArtId = GetMasterArtId(artId);
+
             byte[] dds = null;
             bool fromHd = false;
-            if (_arts.TryGetHdByArtId(artId, out dds))
+            bool isTerrainTile = false;
+            int hdLoadedFromArtId = -1;
+            if (masterArtId >= 0 && _arts.TryGetHdByArtId(masterArtId, out byte[] hdDds))
             {
-                fromHd = true;
+                // EC renders fully-opaque tileable masters (slate roof,
+                // water, plain floors) through its KR-era chunked terrain
+                // mesh: a 32×32-cell mesh in world space sampled with
+                // world-position UVs (`uv = world_xz / 32`), so the texture
+                // pattern flows seamlessly across cells. See
+                // docs/ec_renderer_VERIFIED.md for the APItrace findings.
+                //
+                // CUO is a 2D sprite batcher — we can't reproduce that
+                // without a separate render pipeline (TODO: chunked-mesh
+                // terrain renderer). For now: when the master is fully
+                // opaque, skip the HD path entirely and fall back to the
+                // tile's legacy DDS, which is already pre-iso-projected as
+                // a 64×64 diamond (CC-equivalent look at CC resolution).
+                if (IsFullyOpaqueDds(hdDds))
+                {
+                    _arts.TryGetLegacyByArtId(artId, out dds);
+                }
+                else
+                {
+                    dds = hdDds;
+                    fromHd = true;
+                    hdLoadedFromArtId = masterArtId;
+                }
             }
             else
             {
@@ -200,14 +319,54 @@ namespace ClassicUO.Renderer.Arts
             int srcX = 0, srcY = 0, srcW = tex.Width, srcH = tex.Height;
             int anchorX = 0, anchorY = 0;
             Vector2 scale = Vector2.One;
+            bool usesCcAnchor = false;
 
             if (fromHd)
             {
-                // Alpha-trim the HD canvas to its visible content. We
-                // decode the DDS bytes on the CPU because Texture2D.GetData
-                // on a DXT5 surface returns raw compressed blocks.
-                (srcX, srcY, srcW, srcH) = ComputeVisibleBoundsFromDds(dds, tex.Width, tex.Height);
+                if (meta != null && meta.EcImage.IsPopulated)
+                {
+                    // EC HD with explicit EcImage: this is the
+                    // master-texture-crop case (Ghidra FUN_00459390 branch
+                    // 1). Sub-rect of the master, +1 on X1/Y1 for exclusive
+                    // bounds, fit-to-44 if oversized.
+                    int x0 = meta.EcImage.X0;
+                    int y0 = meta.EcImage.Y0;
+                    int x1 = meta.EcImage.X1 + 1;
+                    int y1 = meta.EcImage.Y1 + 1;
+                    x0 = System.Math.Clamp(x0, 0, tex.Width);
+                    y0 = System.Math.Clamp(y0, 0, tex.Height);
+                    x1 = System.Math.Clamp(x1, x0 + 1, tex.Width);
+                    y1 = System.Math.Clamp(y1, y0 + 1, tex.Height);
+                    srcX = x0; srcY = y0; srcW = x1 - x0; srcH = y1 - y0;
+                    const int CELL = 44;
+                    if (srcW > CELL || srcH > CELL)
+                    {
+                        float s = System.Math.Min((float)CELL / srcW, (float)CELL / srcH);
+                        scale = new Vector2(s, s);
+                    }
+                }
+                else
+                {
+                    // EcImage unpopulated — typical regular sprite (wall,
+                    // statue, foliage). Use alpha-trim of the HD canvas.
+                    // Do NOT default to (0,0,44,44): that'd crop the top-
+                    // left corner of walls and similar tall sprites.
+                    (srcX, srcY, srcW, srcH) = ComputeVisibleBoundsFromDds(dds, tex.Width, tex.Height);
+                    // HD canvas is roughly 1.5× the CC pixel pitch (DAT_00c853b4
+                    // = 1.5 in the binary; see FUN_00459390 branch 2). Shrink
+                    // back to CC-equivalent pixels.
+                    const float HD_TO_CC = 1f / 1.5f;
+                    scale = new Vector2(HD_TO_CC, HD_TO_CC);
+                    // Mark for CC-bbox anchor at render time — bottom-
+                    // center alone isn't enough for off-center HD content.
+                    usesCcAnchor = true;
+                }
             }
+            // Legacy: kept on full-canvas src. FUN_0051af20 reads
+            // LegacyImage (X1-X0, Y1-Y0) and an optional fit-to-44 scale
+            // but using those as a raw source crop didn't help the roof
+            // rendering — the rect likely represents display dimensions
+            // / hit-test, not where to crop in the DDS.
 
             art = new EcRenderArt
             {
@@ -218,6 +377,7 @@ namespace ClassicUO.Renderer.Arts
                 AnchorX = anchorX,
                 AnchorY = anchorY,
                 FromHd = fromHd,
+                UsesCcAnchor = usesCcAnchor,
                 Scale = scale,
             };
             _cache[artId] = art;
@@ -270,6 +430,34 @@ namespace ClassicUO.Renderer.Arts
             var converted = new Texture2D(_device, width, height, false, SurfaceFormat.Color);
             converted.SetData(_scanBuf, 0, total);
             return converted;
+        }
+
+        /// <summary>
+        /// Fast all-opaque test for a DXT5 DDS. In DXT5 each 4×4 block's
+        /// alpha is encoded by two endpoint bytes a0/a1 (offsets 0/1 of the
+        /// block); when both are 255 the entire block is opaque regardless
+        /// of the index bits. Scanning only those two bytes per block is
+        /// ~32× cheaper than full decoding and is sufficient to detect
+        /// tileable terrain textures (e.g. tile 1407 slate roof at 256×256
+        /// is 100 % opaque).
+        /// </summary>
+        private static bool IsFullyOpaqueDds(byte[] dds)
+        {
+            if (dds == null || dds.Length < 128) return false;
+            if (dds[0] != 'D' || dds[1] != 'D' || dds[2] != 'S' || dds[3] != ' ') return false;
+            // DXT1: 4 bits/pixel, no alpha channel — always fully opaque.
+            // (Slate-roof master tile 1407 ships as DXT1.)
+            if (dds[84] == 'D' && dds[85] == 'X' && dds[86] == 'T' && dds[87] == '1')
+                return true;
+            // DXT5: each 16-byte block starts with a0,a1 alpha endpoints.
+            // When both are 255 the block is opaque regardless of indices;
+            // a single block with anything else means the texture has alpha.
+            if (dds[84] != 'D' || dds[85] != 'X' || dds[86] != 'T' || dds[87] != '5') return false;
+            for (int off = 128; off + 16 <= dds.Length; off += 16)
+            {
+                if (dds[off] != 255 || dds[off + 1] != 255) return false;
+            }
+            return true;
         }
 
         /// <summary>
