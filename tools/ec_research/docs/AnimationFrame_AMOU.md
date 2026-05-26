@@ -98,11 +98,24 @@ Patterns observed:
 
 1. **Disassemble the Mythic binary loader** for AMOU specifically. The
    factory is `AVUOAnimationFrameSetFactory` (per existing
-   `AnimationFrame.md`). With the full Ghidra dump available
-   (`tools/ghidra/ghidra_full.jsonl`), find the factory's constructor
-   and trace the `_byte = stream.read_u8(); if (_byte & 0x80) ...`
-   pattern that should be the RLE decoder. Filter functions that have
-   nested loops reading single bytes and writing to a 2D pixel buffer.
+   `AnimationFrame.md`). **Attempted** with our 47k-function Ghidra
+   dump and found no hits:
+   - The literal `'AMOU'` is NOT a string in any function body — the
+     magic check must be `memcmp(buf, "AMOU", 4)` against a `.rdata`
+     constant whose address Ghidra reads as raw u32 but doesn't render
+     as a recognizable string in the decompile.
+   - Searching for the u32 constant `0x554F4D41` (`'AMOU'` LE) in any
+     decompiled body — also no hits.
+   - String matches for `AVUOAnimation*` class names — none in our
+     dump.
+   - Searching for typical RLE-decoder signatures (nested loops, byte
+     masks, palette indexing) yielded 320 candidates, all of which are
+     CRT/Gamebryo math/lib functions when inspected.
+   - The Mythic asset registry uses a TYPE TAG (we saw `0x6000000` for
+     TileArt) dispatched through `FUN_00a72320`'s table. AMOU likely
+     has its own type tag; finding it would reach the right factory.
+     Try `0x7000000`, `0x8000000` etc. as potential AnimationFrame
+     resource type tags and grep for their use.
 2. **Differential byte analysis** across known-similar frames. The
    first frames of an idle animation should be highly redundant in the
    pixel area too. Compare frames 1-3 byte-by-byte to find structural
