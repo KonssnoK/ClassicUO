@@ -761,7 +761,19 @@ namespace ClassicUO.Game.GameObjects
                     }
                 }
 
-                hueVec = ShaderHueTranslator.GetHueVector(hue, partialHue, hueVec.Z);
+                // EC AMOU frames are full-RGB (not palette-indexed) — the CC
+                // hue shader treats R==G==B pixels as hueable and tints them,
+                // which produces wrong colors for already-colored EC pixels.
+                // When EC anim source is active, bypass hue tinting.
+                if (Client.Game.UO.EcAnimations?.IsEnabled == true)
+                {
+                    hueVec.X = 0;
+                    hueVec.Y = ShaderHueTranslator.SHADER_NONE;
+                }
+                else
+                {
+                    hueVec = ShaderHueTranslator.GetHueVector(hue, partialHue, hueVec.Z);
+                }
 
                 if (spriteInfo.Texture != null)
                 {

@@ -16,10 +16,55 @@ namespace ClassicUO.Renderer.Animations
 
         private AnimationDirection[][][] _cache;
 
+        /// <summary>
+        /// Optional EC animation override. When set and its UseEc is true,
+        /// GetAnimationFrames substitutes AMOU-decoded frames in place of
+        /// CC frames whenever EC has the (body, action). Falls back to CC
+        /// when EC has no matching entry.
+        /// </summary>
+        public EcAnimation Ec { get; set; }
+
         public Animations(AnimationsLoader animationLoader, GraphicsDevice device)
         {
             _animationLoader = animationLoader;
             _atlas = new TextureAtlas(device, 4096, 4096, SurfaceFormat.Color);
+        }
+
+        /// <summary>
+        /// Invalidate all cached animation directions — call this when
+        /// switching animation source so the next draw rebuilds frames
+        /// from the new source.
+        ///
+        /// Frames live on IndexAnimation.Groups[action].Direction[dir]
+        /// (and UopGroups for UOP-flagged bodies); resetting FrameCount=0
+        /// + SpriteInfos=null forces GetAnimationFrames to re-enter the
+        /// decode branch on the next call.
+        /// </summary>
+        public void InvalidateCache()
+        {
+            if (_dataIndex == null) return;
+            for (int b = 0; b < _dataIndex.Length; b++)
+            {
+                var idx = _dataIndex[b];
+                if (idx == null) continue;
+                ResetGroups(idx.Groups);
+                ResetGroups(idx.UopGroups);
+            }
+        }
+
+        private static void ResetGroups(AnimationGroup[] groups)
+        {
+            if (groups == null) return;
+            for (int a = 0; a < groups.Length; a++)
+            {
+                var g = groups[a];
+                if (g == null || g.Direction == null) continue;
+                for (int d = 0; d < g.Direction.Length; d++)
+                {
+                    g.Direction[d].FrameCount = 0;
+                    g.Direction[d].SpriteInfos = null;
+                }
+            }
         }
 
 
@@ -305,7 +350,15 @@ namespace ClassicUO.Renderer.Animations
 
             if (animDir.FrameCount <= 0 && animDir.SpriteInfos == null)
             {
-                if (useUOP
+                // EC override: AMOU frames substitute the CC source when
+                // EcAnimation.UseEc is on and we have data for this body/
+                // action. Falls back to CC if EC has no entry.
+                var ecFrames = TryBuildEcFrames(id, action, dir);
+                if (ecFrames != null)
+                {
+                    frames = ecFrames.AsSpan();
+                }
+                else if (useUOP
                 //animDir.IsUOP ||
                 ///* If it's not flagged as UOP, but there is no mul data, try to load
                 //* it as a UOP anyway. */
@@ -382,6 +435,42 @@ namespace ClassicUO.Renderer.Animations
             }
 
             return animDir.SpriteInfos.AsSpan(0, animDir.FrameCount);
+        }
+
+        /// <summary>
+        /// Build a CC-shaped <see cref="AnimationsLoader.FrameInfo"/> array
+        /// for one direction from the EC AMOU cache. Returns null when EC
+        /// has no entry for (body, action) or isn't enabled.
+        ///
+        /// AMOU stores all directions concatenated in one per-action file
+        /// (e.g. body 400 idle = 50 frames = 5 dirs × 10 frames). We slice
+        /// frames[dir * fpd .. (dir+1) * fpd] for the requested direction.
+        /// </summary>
+        private AnimationsLoader.FrameInfo[] TryBuildEcFrames(ushort body, byte action, byte dir)
+        {
+            if (Ec == null || !Ec.IsEnabled) return null;
+            if (!Ec.TryGetFrames(body, action, out var src)) return null;
+            if (src == null || src.Length == 0) return null;
+
+            int dirCount = AnimationsLoader.MAX_DIRECTIONS;
+            int fpd = src.Length / dirCount;
+            if (fpd <= 0) return null;
+
+            int dirIdx = dir < dirCount ? dir : dirCount - 1;
+            int start = dirIdx * fpd;
+            var arr = new AnimationsLoader.FrameInfo[fpd];
+            for (int i = 0; i < fpd; i++)
+            {
+                ref var ef = ref src[start + i];
+                arr[i].Num = i;
+                if (!ef.IsValid) continue;
+                arr[i].CenterX = ef.CenterX;
+                arr[i].CenterY = ef.CenterY;
+                arr[i].Width = (short)ef.Width;
+                arr[i].Height = (short)ef.Height;
+                arr[i].Pixels = ef.Pixels;
+            }
+            return arr;
         }
 
         public void UpdateAnimationTable(BodyConvFlags flags)

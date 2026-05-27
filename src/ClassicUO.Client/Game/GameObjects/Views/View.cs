@@ -136,31 +136,21 @@ namespace ClassicUO.Game.GameObjects
                 Vector2 drawScale;
                 if (ecArt.FromHd)
                 {
+                    // KR HD EcImage-crop: bottom-center + signed dx/dy shift.
                     int dispW = (int)(ecArt.Source.Width  * ecArt.Scale.X);
                     int dispH = (int)(ecArt.Source.Height * ecArt.Scale.Y);
-                    if (ecArt.UsesCcAnchor)
-                    {
-                        var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
-                        int ccCanvasW = artInfo.UV.Width;
-                        int ccCanvasH = artInfo.UV.Height;
-                        int contentBR_X = x - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
-                        int contentBR_Y = y - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
-                        ax = x - (contentBR_X - dispW);
-                        ay = y - (contentBR_Y - dispH);
-                    }
-                    else
-                    {
-                        ax = (dispW >> 1) - 22;
-                        ay = dispH - 44;
-                    }
+                    ax = (dispW >> 1) - 22 - ecArt.AnchorX;
+                    ay = dispH       - 44 - ecArt.AnchorY;
                     src = ecArt.Source;
                     drawScale = ecArt.Scale;
                 }
                 else
                 {
-                    ax = (artInfo.UV.Width >> 1) - 22;
-                    ay = artInfo.UV.Height - 44;
-                    src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
+                    // EC mode: cropped LegacyImage rect, anchor via Source
+                    // dims + signed dx/dy shift (UOReader-equivalent).
+                    ax = (ecArt.Source.Width  >> 1) - 22 - ecArt.AnchorX;
+                    ay =  ecArt.Source.Height       - 44 - ecArt.AnchorY;
+                    src = ecArt.Source;
                     drawScale = Vector2.One;
                 }
 
@@ -334,31 +324,20 @@ namespace ClassicUO.Game.GameObjects
                     Vector2 drawScale;
                     if (ecArt.FromHd)
                     {
+                        // KR HD EcImage-crop: bottom-center + signed dx/dy.
                         int dispW = (int)Math.Round(ecArt.Source.Width  * ecArt.Scale.X);
                         int dispH = (int)Math.Round(ecArt.Source.Height * ecArt.Scale.Y);
-                        if (ecArt.UsesCcAnchor)
-                        {
-                            var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)baseGraphic);
-                            int ccCanvasW = artInfo.UV.Width;
-                            int ccCanvasH = artInfo.UV.Height;
-                            int contentBR_X = x - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
-                            int contentBR_Y = y - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
-                            ax = x - (contentBR_X - dispW);
-                            ay = y - (contentBR_Y - dispH);
-                        }
-                        else
-                        {
-                            ax = (dispW >> 1) - 22;
-                            ay = dispH - 44;
-                        }
+                        ax = (dispW >> 1) - 22 - ecArt.AnchorX;
+                        ay = dispH       - 44 - ecArt.AnchorY;
                         src = ecArt.Source;
                         drawScale = ecArt.Scale;
                     }
                     else
                     {
-                        ax = (artInfo.UV.Width >> 1) - 22;
-                        ay = artInfo.UV.Height - 44;
-                        src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
+                        // EC mode: cropped LegacyImage rect + signed dx/dy.
+                        ax = (ecArt.Source.Width  >> 1) - 22 - ecArt.AnchorX;
+                        ay =  ecArt.Source.Height       - 44 - ecArt.AnchorY;
+                        src = ecArt.Source;
                         drawScale = Vector2.One;
                     }
                     var pos = new Vector2(x - ax, y - ay);

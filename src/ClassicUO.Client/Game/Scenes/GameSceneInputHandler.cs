@@ -1138,6 +1138,28 @@ namespace ClassicUO.Game.Scenes
                 _world.TargetManager.CancelTarget();
             }
 
+            // F10: toggle EC AMOU animations vs classic anim.mul/UOP.
+            if (keycode == SDL.SDL_Keycode.SDLK_F10 && !e.repeat)
+            {
+                var ecAnims = Client.Game.UO.EcAnimations;
+                if (ecAnims != null && ecAnims.CanEnable)
+                {
+                    bool on = ecAnims.Toggle();
+                    Client.Game.UO.Animations?.InvalidateCache();
+                    Configuration.Settings.GlobalSettings.UseEcAnimations = on;
+                    ClassicUO.Utility.Logging.Log.Info($"EC Animations: {(on ? "ENABLED" : "DISABLED")}");
+                    _world.MessageManager?.HandleMessage(
+                        null,
+                        $"EC Animations: {(on ? "ENABLED (AMOU)" : "disabled (classic)")}",
+                        "System",
+                        0x35,
+                        Game.Data.MessageType.System,
+                        3,
+                        Game.Data.TextType.SYSTEM);
+                }
+                return;
+            }
+
             // F12: toggle EC diagnostic mode — when on AND F11 (EC) is on,
             // tiles with no EC replacement aren't drawn at all so you can see
             // which world statics actually have EC sprites in this install.
@@ -1174,8 +1196,8 @@ namespace ClassicUO.Game.Scenes
                     string label = mode switch
                     {
                         Renderer.Arts.EcArtMode.ClassicMul => "Classic mul",
-                        Renderer.Arts.EcArtMode.UopKR      => "UOP KR (upscaled 2D)",
-                        Renderer.Arts.EcArtMode.UopEC      => "UOP EC (HD + masks)",
+                        Renderer.Arts.EcArtMode.UopKR      => "UOP KR (HD + masks)",
+                        Renderer.Arts.EcArtMode.UopEC      => "UOP EC (flat 2D)",
                         _ => mode.ToString(),
                     };
                     ClassicUO.Utility.Logging.Log.Info($"Tileart mode: {label}");

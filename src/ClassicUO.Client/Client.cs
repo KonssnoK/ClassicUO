@@ -94,6 +94,12 @@ namespace ClassicUO
                 Log.Trace($"Tileart mode: {EcArts.Mode}  (press F11 in game to cycle)");
             }
             EcAnimations = new Renderer.Animations.EcAnimation(FileManager.EcAnimations, game.GraphicsDevice);
+            Animations.Ec = EcAnimations;
+            if (EcAnimations.CanEnable)
+            {
+                EcAnimations.UseEc = Configuration.Settings.GlobalSettings.UseEcAnimations;
+                Log.Trace($"EC Anim: {(EcAnimations.UseEc ? "ENABLED" : "disabled")}  (press F10 in game to toggle)");
+            }
             Gumps = new Renderer.Gumps.Gump(FileManager.Gumps, game.GraphicsDevice);
             Texmaps = new Renderer.Texmaps.Texmap(FileManager.Texmaps, game.GraphicsDevice);
             Lights = new Renderer.Lights.Light(FileManager.Lights, game.GraphicsDevice);

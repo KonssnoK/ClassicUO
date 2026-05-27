@@ -27,7 +27,9 @@ namespace ClassicUO.Renderer.Animations
 {
     public struct EcAnimFrame
     {
-        public Texture2D Texture;
+        // Decoded RGBA pixels, row-major, Width × Height — ready for atlas
+        // upload via the same path CC frames use.
+        public uint[] Pixels;
         public int Width;
         public int Height;
         // Top-left of the frame's local bbox, in body-local pixel coords
@@ -43,7 +45,7 @@ namespace ClassicUO.Renderer.Animations
         //   CenterY = -(InitY + Height)   (= -EndY)
         public short CenterX;
         public short CenterY;
-        public bool IsValid => Texture != null;
+        public bool IsValid => Pixels != null && Width > 0 && Height > 0;
     }
 
     public sealed class EcAnimation : IDisposable
@@ -58,9 +60,28 @@ namespace ClassicUO.Renderer.Animations
         {
             _loader = loader;
             _device = device;
+            CanEnable = loader != null && device != null && loader.IsEnabled;
         }
 
-        public bool IsEnabled => _loader != null && _loader.IsEnabled;
+        /// <summary>True when EC anim UOPs were found at startup.</summary>
+        public bool CanEnable { get; }
+
+        /// <summary>
+        /// Master switch: when true, the animation pipeline consults this
+        /// cache before falling back to CC (anim.mul / AnimationFrame.uop).
+        /// When false (default), CC pipeline runs as-is.
+        /// </summary>
+        public bool UseEc { get; set; }
+
+        /// <summary>Toggle EC animation source. Returns the new state.</summary>
+        public bool Toggle()
+        {
+            if (!CanEnable) return false;
+            UseEc = !UseEc;
+            return UseEc;
+        }
+
+        public bool IsEnabled => CanEnable && UseEc;
 
         public bool TryGetFrames(int body, int action, out EcAnimFrame[] frames)
         {
@@ -184,10 +205,12 @@ namespace ClassicUO.Renderer.Animations
 
                 uint[] pixels = DecodeFrame(data, start, end, frames[i].Width, frames[i].Height, palette);
                 if (pixels == null) continue;
-
-                var tex = new Texture2D(_device, frames[i].Width, frames[i].Height, false, SurfaceFormat.Color);
-                tex.SetData(pixels);
-                frames[i].Texture = tex;
+                // AMOU sprites are ~1.5× the CC pixel pitch (body 400 idle
+                // is 30×64, CC equivalent is ~20×42). Downsample 2/3 so the
+                // EC frames display at the same world-pixel size as CC and
+                // the CenterX/Y anchor math (in CC pixels) lines up.
+                Downsample2of3(ref pixels, ref frames[i]);
+                frames[i].Pixels = pixels;
             }
 
             return frames;
@@ -246,6 +269,38 @@ namespace ClassicUO.Renderer.Animations
             return pixels;
         }
 
+        // Nearest-neighbor 2/3 downsample of a frame's pixel buffer + bbox
+        // metadata. New size = floor(old * 2 / 3). Center / Init coords scale
+        // by the same factor so the anchor stays consistent post-scale.
+        private static void Downsample2of3(ref uint[] pixels, ref EcAnimFrame f)
+        {
+            int srcW = f.Width, srcH = f.Height;
+            int dstW = srcW * 2 / 3;
+            int dstH = srcH * 2 / 3;
+            if (dstW <= 0 || dstH <= 0 || (dstW == srcW && dstH == srcH))
+                return;
+
+            uint[] dst = new uint[dstW * dstH];
+            for (int y = 0; y < dstH; y++)
+            {
+                int sy = y * srcH / dstH;
+                int srcRow = sy * srcW;
+                int dstRow = y * dstW;
+                for (int x = 0; x < dstW; x++)
+                {
+                    int sx = x * srcW / dstW;
+                    dst[dstRow + x] = pixels[srcRow + sx];
+                }
+            }
+            pixels = dst;
+            f.Width = dstW;
+            f.Height = dstH;
+            f.InitX = (short)(f.InitX * 2 / 3);
+            f.InitY = (short)(f.InitY * 2 / 3);
+            f.CenterX = (short)(-f.InitX);
+            f.CenterY = (short)(-(f.InitY + dstH));
+        }
+
         // 4-bit per-channel lerp: out = base*w/16 + prior*(16-w)/16  for RGB,
         // alpha forced to 255 on output. Matches UOReader's nibble blender.
         private static uint Blend(uint baseCol, uint prior, int w)
@@ -265,11 +320,6 @@ namespace ClassicUO.Renderer.Animations
 
         public void Dispose()
         {
-            foreach (var arr in _cache.Values)
-            {
-                if (arr == null) continue;
-                for (int i = 0; i < arr.Length; i++) arr[i].Texture?.Dispose();
-            }
             _cache.Clear();
             _missing.Clear();
         }

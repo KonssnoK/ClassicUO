@@ -51,12 +51,20 @@ namespace ClassicUO.Configuration
 
         // Tileart source selector. Three values:
         //   0 = classic mul (art.mul / artLegacyMUL.uop) — DEFAULT
-        //   1 = UOP KR  (LegacyTexture.uop tileartlegacy DDS — upscaled 2D)
-        //   2 = UOP EC  (Texture.uop HD + EcImage crop + hue mask)
+        //   1 = UOP KR  (Texture.uop HD master + EcImage crop + hue mask;
+        //               the big upscaled sprites used by the Kingdom-Reborn
+        //               era pipeline)
+        //   2 = UOP EC  (LegacyTexture.uop tileartlegacy DDS; the flat 2D
+        //               sprites the actual Enhanced Client uses for statics)
         // EC files still get loaded when EnhancedClientDirectory is set; this
         // just controls which source the renderer pulls from. Press F11 in
         // game to cycle through the three modes live.
         [JsonPropertyName("tileart_mode")] public int TileartMode { get; set; } = 0;
+
+        // Use AMOU animations from AnimationFrame{1..6}.uop in place of CC
+        // (anim.mul / AnimationFrame.uop) when the EC files are present.
+        // F10 toggles at runtime.
+        [JsonPropertyName("use_ec_animations")] public bool UseEcAnimations { get; set; } = false;
 
         // Backward-compat: pre-tristate boolean. Reads as true if TileartMode
         // is set to anything non-classic. Kept for older settings files; if

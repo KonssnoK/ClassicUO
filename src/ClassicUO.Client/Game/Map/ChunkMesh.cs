@@ -470,32 +470,13 @@ namespace ClassicUO.Game.Map
                     float scaleX, scaleY;
                     if (ecArt.FromHd)
                     {
-                        // Truncating cast — matches the prior renderer to
-                        // the pixel; switching to Math.Round here shifts
-                        // walls 1 px on cases like 52*0.667 = 34.667.
+                        // KR HD EcImage-crop path: bottom-center on the cell
+                        // + signed dx/dy shift from EcImage[4]/[5].
+                        // Truncating cast — matches prior pixel-exact math.
                         int dispW = (int)(ecArt.Source.Width  * ecArt.Scale.X);
                         int dispH = (int)(ecArt.Source.Height * ecArt.Scale.Y);
-                        if (ecArt.UsesCcAnchor)
-                        {
-                            // Alpha-trim HD path: align HD content's bottom-
-                            // right to CC content's bottom-right so off-
-                            // center sprites (walls, statues) stand where
-                            // CC put them.
-                            var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
-                            int ccCanvasW = artInfo.UV.Width;
-                            int ccCanvasH = artInfo.UV.Height;
-                            int contentBR_X = baseX - (ccCanvasW >> 1) + 22 + ccBox.X + ccBox.Width;
-                            int contentBR_Y = baseY - ccCanvasH + 44 + ccBox.Y + ccBox.Height;
-                            ax = baseX - (contentBR_X - dispW);
-                            ay = baseY - (contentBR_Y - dispH);
-                        }
-                        else
-                        {
-                            // EcImage-crop or terrain path: source is
-                            // naturally bottom-center on the cell.
-                            ax = (dispW >> 1) - 22;
-                            ay = dispH - 44;
-                        }
+                        ax = (dispW >> 1) - 22 - ecArt.AnchorX;
+                        ay = dispH       - 44 - ecArt.AnchorY;
                         src = ecArt.Source;
                         scaleX = ecArt.Scale.X;
                         scaleY = ecArt.Scale.Y;
@@ -513,9 +494,16 @@ namespace ClassicUO.Game.Map
                     }
                     else
                     {
-                        ax = (artInfo.UV.Width >> 1) - 22;
-                        ay = artInfo.UV.Height - 44;
-                        src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
+                        // EC mode (flat 2D from LegacyTexture.uop). The DDS
+                        // is POT-padded; ecArt.Source already crops to the
+                        // actual sprite content rect (per LegacyImage). Use
+                        // those dimensions — NOT artInfo.UV — for bottom-
+                        // center anchor or the padding offsets the sprite.
+                        // AnchorX/AnchorY hold the signed LegacyImage dx/dy
+                        // canvas-padding shift (UOReader-equivalent).
+                        ax = (ecArt.Source.Width  >> 1) - 22 - ecArt.AnchorX;
+                        ay =  ecArt.Source.Height       - 44 - ecArt.AnchorY;
+                        src = ecArt.Source;
                         scaleX = scaleY = 1f;
                     }
                     int ecPosX = baseX - ax;
