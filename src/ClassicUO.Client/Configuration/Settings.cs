@@ -49,11 +49,23 @@ namespace ClassicUO.Configuration
         // in this folder, falling back to the classic art for anything missing.
         [JsonPropertyName("enhanced_client_directory")] public string EnhancedClientDirectory { get; set; } = "";
 
-        // Master switch for using EC art in place of classic statics. The EC
-        // files still get loaded when EnhancedClientDirectory is set, but the
-        // renderer only swaps them in when this flag is true. Press F11 in
-        // game to flip it live and compare side-by-side.
-        [JsonPropertyName("use_enhanced_art")] public bool UseEnhancedArt { get; set; } = false;
+        // Tileart source selector. Three values:
+        //   0 = classic mul (art.mul / artLegacyMUL.uop) — DEFAULT
+        //   1 = UOP KR  (LegacyTexture.uop tileartlegacy DDS — upscaled 2D)
+        //   2 = UOP EC  (Texture.uop HD + EcImage crop + hue mask)
+        // EC files still get loaded when EnhancedClientDirectory is set; this
+        // just controls which source the renderer pulls from. Press F11 in
+        // game to cycle through the three modes live.
+        [JsonPropertyName("tileart_mode")] public int TileartMode { get; set; } = 0;
+
+        // Backward-compat: pre-tristate boolean. Reads as true if TileartMode
+        // is set to anything non-classic. Kept for older settings files; if
+        // present in JSON it seeds TileartMode at load time.
+        [JsonPropertyName("use_enhanced_art")] public bool UseEnhancedArt
+        {
+            get => TileartMode != 0;
+            set { if (value && TileartMode == 0) TileartMode = 2; else if (!value) TileartMode = 0; }
+        }
 
         [JsonPropertyName("profilespath")] public string ProfilesPath { get; set; } = string.Empty;
 

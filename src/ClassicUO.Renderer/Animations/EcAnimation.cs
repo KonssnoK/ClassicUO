@@ -30,12 +30,19 @@ namespace ClassicUO.Renderer.Animations
         public Texture2D Texture;
         public int Width;
         public int Height;
-        // Top-left of the frame's local bbox, in body-local pixel coords.
-        // The CC engine offsets the sprite by (-CenterX, -Y) relative to
-        // the body's anchor; for EC we expose Init coords and the caller
-        // computes its own anchor.
+        // Top-left of the frame's local bbox, in body-local pixel coords
+        // (body anchor at origin; Y grows downward in screen space, so the
+        // head sits at a more-negative Y than the feet).
         public short InitX;
         public short InitY;
+        // CC-convention anchor used by MobileView / ItemView:
+        //   screen_x = world_pos.X - CenterX                (left edge)
+        //   screen_y = world_pos.Y - (Height + CenterY)     (top edge)
+        // Derived from AMOU per-frame bbox:
+        //   CenterX = -InitX
+        //   CenterY = -(InitY + Height)   (= -EndY)
+        public short CenterX;
+        public short CenterY;
         public bool IsValid => Texture != null;
     }
 
@@ -151,6 +158,8 @@ namespace ClassicUO.Renderer.Animations
                 frames[i].InitY = iy;
                 frames[i].Width = width;
                 frames[i].Height = height;
+                frames[i].CenterX = (short)(-ix);
+                frames[i].CenterY = (short)(-(iy + height));
                 pixelStarts[i] = frameOff + i * 16 + rel;
             }
 

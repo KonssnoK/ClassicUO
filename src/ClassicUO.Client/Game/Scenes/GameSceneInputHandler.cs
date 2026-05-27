@@ -1162,18 +1162,26 @@ namespace ClassicUO.Game.Scenes
                 return;
             }
 
-            // F11: toggle EC art swap on/off so you can A/B compare CC vs EC tiles live.
+            // F11: cycle tileart source — Classic mul → UOP KR → UOP EC → Classic.
             if (keycode == SDL.SDL_Keycode.SDLK_F11 && !e.repeat)
             {
                 var ecArts = Client.Game.UO.EcArts;
                 if (ecArts != null && ecArts.CanEnable)
                 {
-                    bool on = ecArts.Toggle();
+                    var mode = ecArts.CycleMode();
+                    Configuration.Settings.GlobalSettings.TileartMode = (int)mode;
                     _world.Map?.MarkAllChunksDirty();
-                    ClassicUO.Utility.Logging.Log.Info($"EC Art: {(on ? "ENABLED" : "DISABLED")}");
+                    string label = mode switch
+                    {
+                        Renderer.Arts.EcArtMode.ClassicMul => "Classic mul",
+                        Renderer.Arts.EcArtMode.UopKR      => "UOP KR (upscaled 2D)",
+                        Renderer.Arts.EcArtMode.UopEC      => "UOP EC (HD + masks)",
+                        _ => mode.ToString(),
+                    };
+                    ClassicUO.Utility.Logging.Log.Info($"Tileart mode: {label}");
                     _world.MessageManager?.HandleMessage(
                         null,
-                        $"EC Art: {(on ? "ENABLED" : "disabled")}",
+                        $"Tileart: {label}",
                         "System",
                         0x35,
                         Game.Data.MessageType.System,

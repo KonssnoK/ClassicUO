@@ -22,6 +22,32 @@ using System.IO;
 
 namespace ClassicUO.Renderer.Arts
 {
+    /// <summary>
+    /// Which tileart source the renderer should use for static placement.
+    /// All three sources coexist in the same install — this just picks
+    /// which one wins per draw call.
+    /// </summary>
+    public enum EcArtMode
+    {
+        /// <summary>Skip EC entirely; renderer uses art.mul / artLegacyMUL.uop.</summary>
+        ClassicMul = 0,
+
+        /// <summary>
+        /// Use upscaled 2D sprites from LegacyTexture.uop (`build/tileartlegacy/{id}.dds`) —
+        /// the Kingdom-Reborn-era art that's still shipped in the EC install. No HD
+        /// master crop, no EcImage padding, no hue mask. Drawn bottom-center on
+        /// the cell like CC art.
+        /// </summary>
+        UopKR = 1,
+
+        /// <summary>
+        /// Full Enhanced-Client pipeline: HD master from Texture.uop, EcImage
+        /// sub-rect crop, signed dx/dy canvas padding, partial-hue mask. Falls
+        /// back to LegacyTexture.uop when a tile has no HD entry.
+        /// </summary>
+        UopEC = 2,
+    }
+
     public struct EcRenderArt
     {
         public Texture2D Texture;
@@ -153,11 +179,40 @@ namespace ClassicUO.Renderer.Arts
         }
 
         /// <summary>
-        /// Whether EC art is loaded and the renderer is allowed to swap it in.
-        /// Settable at runtime — flip this to A/B compare CC vs EC live.
+        /// Which tileart source the renderer is currently using. Changing the
+        /// mode invalidates the per-art cache (each mode produces different
+        /// textures). When <see cref="CanEnable"/> is false the renderer is
+        /// locked to <see cref="EcArtMode.ClassicMul"/>.
         /// </summary>
-        public bool IsEnabled { get; set; }
+        private EcArtMode _mode = EcArtMode.ClassicMul;
+        public EcArtMode Mode
+        {
+            get => _mode;
+            set
+            {
+                if (!CanEnable) value = EcArtMode.ClassicMul;
+                if (_mode == value) return;
+                _mode = value;
+                InvalidateCache();
+            }
+        }
+
+        /// <summary>True while any non-classic mode is selected.</summary>
+        public bool IsEnabled
+        {
+            get => _mode != EcArtMode.ClassicMul;
+            set => Mode = value ? EcArtMode.UopEC : EcArtMode.ClassicMul;
+        }
+
         public bool CanEnable { get; }
+
+        private void InvalidateCache()
+        {
+            foreach (var v in _cache.Values) v.Texture?.Dispose();
+            _cache.Clear();
+            _missing.Clear();
+            _hasMask.Clear();
+        }
 
         /// <summary>
         /// Diagnostic mode: when on, statics with no EC art are simply not
@@ -173,16 +228,33 @@ namespace ClassicUO.Renderer.Arts
             _device = device;
             CanEnable = arts != null && device != null && arts.IsEnabled;
             // Initial state is set by the caller (Client.cs), gated on the setting.
-            IsEnabled = false;
+            _mode = EcArtMode.ClassicMul;
         }
 
-        /// <summary>Toggle the EC swap on/off. Returns the new state.</summary>
+        /// <summary>
+        /// Cycle to the next tileart mode (Classic → KR → EC → Classic).
+        /// Returns the new mode. When <see cref="CanEnable"/> is false this
+        /// is a no-op and always returns <see cref="EcArtMode.ClassicMul"/>.
+        /// </summary>
+        public EcArtMode CycleMode()
+        {
+            if (!CanEnable) return EcArtMode.ClassicMul;
+            Log.Info($"EcArt counters: hit={HitCount}  miss(noRecord)={MissNoRecordCount}  "
+                     + $"miss(noSpriteId)={MissNoSpriteIdCount}  miss(noDDS)={MissDdsCount}");
+            Mode = _mode switch
+            {
+                EcArtMode.ClassicMul => EcArtMode.UopKR,
+                EcArtMode.UopKR      => EcArtMode.UopEC,
+                _                    => EcArtMode.ClassicMul,
+            };
+            return _mode;
+        }
+
+        /// <summary>Legacy two-state toggle: flips between Classic and full EC.</summary>
         public bool Toggle()
         {
             if (!CanEnable) return false;
             IsEnabled = !IsEnabled;
-            Log.Info($"EcArt counters: hit={HitCount}  miss(noRecord)={MissNoRecordCount}  "
-                     + $"miss(noSpriteId)={MissNoSpriteIdCount}  miss(noDDS)={MissDdsCount}");
             return IsEnabled;
         }
 
@@ -205,9 +277,15 @@ namespace ClassicUO.Renderer.Arts
         public bool TryGet(int artId, out EcRenderArt art)
         {
             art = EcRenderArt.Empty;
-            if (!IsEnabled) return false;
+            if (_mode == EcArtMode.ClassicMul) return false;
             if (_missing.Contains(artId)) return false;
             if (_cache.TryGetValue(artId, out art)) return art.IsValid;
+
+            // KR mode: skip HD master + EcImage crop + mask entirely. Use
+            // only the upscaled 2D sprite from LegacyTexture.uop, drawn
+            // bottom-center on the cell — same anchor math as CC.
+            if (_mode == EcArtMode.UopKR)
+                return TryGetLegacyOnly(artId, out art);
 
             // Prefer HD when DDS exists; fall back to legacy.
             // EcImage rect represents only a SUB-PIECE of the HD canvas
@@ -382,6 +460,49 @@ namespace ClassicUO.Renderer.Arts
             };
             _cache[artId] = art;
 
+            HitCount++;
+            return true;
+        }
+
+        /// <summary>
+        /// KR-mode load: pull `build/tileartlegacy/{id}.dds` (the upscaled 2D
+        /// art that ships in LegacyTexture.uop), upload it as-is, draw bottom-
+        /// center on the cell. No HD master, no EcImage crop, no hue mask.
+        /// </summary>
+        private bool TryGetLegacyOnly(int artId, out EcRenderArt art)
+        {
+            art = EcRenderArt.Empty;
+            if (!_arts.TryGetLegacyByArtId(artId, out byte[] dds))
+            {
+                _missing.Add(artId);
+                MissDdsCount++;
+                return false;
+            }
+
+            Texture2D tex;
+            try
+            {
+                using var ms = new MemoryStream(dds, writable: false);
+                tex = Texture2D.DDSFromStreamEXT(_device, ms);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"EcArt(KR): DDS decode failed for id {artId}: {ex.Message}");
+                _missing.Add(artId);
+                return false;
+            }
+
+            art = new EcRenderArt
+            {
+                Texture = tex,
+                Source = new Rectangle(0, 0, tex.Width, tex.Height),
+                Width = tex.Width,
+                Height = tex.Height,
+                FromHd = false,
+                UsesCcAnchor = false,
+                Scale = Vector2.One,
+            };
+            _cache[artId] = art;
             HitCount++;
             return true;
         }

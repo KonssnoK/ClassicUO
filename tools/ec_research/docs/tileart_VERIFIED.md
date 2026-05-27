@@ -284,16 +284,52 @@ the same loader path with a different scale source). For 2D world
 placement of statics it produces a tiny ~29 CC-px sprite, so our code
 intentionally **falls through to legacy when EcImage isn't populated**.
 
-### Anchor offset
+### Anchor offset (signed canvas padding) ✅ VERIFIED via UOReader
 
-`EcImage` ints 4 and 5 carry the world-space anchor: `(PixelsXOffset,
-PixelsYOffset)` in the C# struct, `offX/offY` in the wiki. Applied as a
-position offset on top of the standard CC bottom-center anchor math:
+`EcImage` ints 4 and 5 carry `(PixelsXOffset, PixelsYOffset)` — signed
+**canvas padding** around the sprite content, chosen by sign:
 
+| Field    | Sign     | Effect                                          |
+|----------|----------|-------------------------------------------------|
+| `dx > 0` | positive | margin on the **left**, sprite shifts right    |
+| `dx < 0` | negative | margin on the **right**, sprite stays at x = 0 |
+| `dy > 0` | positive | margin on the **top**, sprite shifts down      |
+| `dy < 0` | negative | margin on the **bottom**, sprite stays at y = 0 |
+
+UOReader's render code (verbatim, from `TileartControlNew.cs` decompile):
+
+```csharp
+canvas.Width  = sprite.Width  + abs(dx);
+canvas.Height = sprite.Height + abs(dy);
+canvas.DrawImage(sprite, max(dx, 0), max(dy, 0));
 ```
-ax = (srcW >> 1) - 22 - offX
-ay = srcH       - 44 - offY
-```
+
+The full draw-time canvas is then `(spriteW + |dx|, spriteH + |dy|)`,
+with the world cell anchored at the canvas's bottom-center (same as CC).
+This is what gives walls and statues their off-center placement
+without any per-class anchor hacks — the dx/dy directly encode where
+the sprite sits relative to the world cell.
+
+**Note on UOReader's right-pane text:** the annotations
+`wTot = w + dx` / `hTot = h + dy` use **signed** addition for human-
+readability (e.g. ankh shows `hTot = 81` for `dy = -24`); the actual
+drawing code uses `abs(dy)` so the real canvas height is 129. The
+descriptive text and the rendering code use different formulas — trust
+the rendering code.
+
+**Examples** (verified per-record):
+
+| Tile | EcImage `(x0,y0,x1,y1,dx,dy)` | Canvas | Content at | Effect |
+|------|--------------------------------|--------|------------|--------|
+| 2 (ankh)        | `(0, 0, 42, 105, 25, -24)` | 67 × 129 | (25, 0)  | shifted right; anchor 24 px below sprite |
+| 201 (stone wall)| `(0, 0, 51, 167, 18, 0)`   | 69 × 167 | (18, 0)  | shifted right; bottom-aligned         |
+| 16640 (small wall) | `(0, 0, 23, 35, 21, -20)` | 44 × 55 | (21, 0)  | shifted right; anchor below          |
+| 22137 (marble wall)| `(7, 0, 58, 16, 6, -26)` | 57 × 42  | (6, 0)   | shifted right; anchor far below      |
+
+The implication for CUO: the current `UsesCcAnchor` fallback (alpha-
+trimmed HD bbox aligned to CC content's bottom-right) can be retired
+once dx/dy padding is applied — the EC anchor is fully described by
+these two signed ints.
 
 ### Render scale
 

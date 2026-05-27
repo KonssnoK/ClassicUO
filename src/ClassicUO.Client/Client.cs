@@ -88,9 +88,10 @@ namespace ClassicUO
             EcArts = new Renderer.Arts.EcArt(FileManager.EcArts, FileManager.EcTileArt, game.GraphicsDevice);
             if (EcArts.CanEnable)
             {
-                EcArts.IsEnabled = Configuration.Settings.GlobalSettings.UseEnhancedArt;
-                Log.Trace($"EC Art: {(EcArts.IsEnabled ? "ENABLED" : "disabled")}  "
-                          + "(press F11 in game to toggle)");
+                int rawMode = Configuration.Settings.GlobalSettings.TileartMode;
+                if (rawMode < 0 || rawMode > 2) rawMode = 0;
+                EcArts.Mode = (Renderer.Arts.EcArtMode)rawMode;
+                Log.Trace($"Tileart mode: {EcArts.Mode}  (press F11 in game to cycle)");
             }
             EcAnimations = new Renderer.Animations.EcAnimation(FileManager.EcAnimations, game.GraphicsDevice);
             Gumps = new Renderer.Gumps.Gump(FileManager.Gumps, game.GraphicsDevice);
