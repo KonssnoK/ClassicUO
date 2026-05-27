@@ -21,6 +21,7 @@ namespace ClassicUO
         public Renderer.Animations.Animations Animations { get; private set; }
         public Renderer.Arts.Art Arts { get; private set; }
         public Renderer.Arts.EcArt EcArts { get; private set; }
+        public Renderer.Animations.EcAnimation EcAnimations { get; private set; }
         public Renderer.Gumps.Gump Gumps { get; private set; }
         public Renderer.Texmaps.Texmap Texmaps { get; private set; }
         public Renderer.Lights.Light Lights { get; private set; }
@@ -91,6 +92,7 @@ namespace ClassicUO
                 Log.Trace($"EC Art: {(EcArts.IsEnabled ? "ENABLED" : "disabled")}  "
                           + "(press F11 in game to toggle)");
             }
+            EcAnimations = new Renderer.Animations.EcAnimation(FileManager.EcAnimations, game.GraphicsDevice);
             Gumps = new Renderer.Gumps.Gump(FileManager.Gumps, game.GraphicsDevice);
             Texmaps = new Renderer.Texmaps.Texmap(FileManager.Texmaps, game.GraphicsDevice);
             Lights = new Renderer.Lights.Light(FileManager.Lights, game.GraphicsDevice);
@@ -107,6 +109,7 @@ namespace ClassicUO
         public void Unload()
         {
             EcArts?.Dispose();
+            EcAnimations?.Dispose();
             FileManager.Dispose();
             World?.Map?.Destroy();
         }

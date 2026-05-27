@@ -41,6 +41,7 @@ namespace ClassicUO.Assets
             AnimData = new AnimDataLoader(this);
             Arts = new ArtLoader(this);
             EcArts = new EcArtLoader(this);
+            EcAnimations = new EcAnimationLoader(this);
             EcStringDictionary = new EcStringDictionary(this);
             EcTileArt = new EcTileArtLoader(this);
             Maps = new MapLoader(this);
@@ -72,6 +73,7 @@ namespace ClassicUO.Assets
         public AnimDataLoader AnimData { get; }
         public ArtLoader Arts { get; }
         public EcArtLoader EcArts { get; }
+        public EcAnimationLoader EcAnimations { get; }
         public EcStringDictionary EcStringDictionary { get; }
         public EcTileArtLoader EcTileArt { get; }
         public MapLoader Maps { get; set; }
@@ -100,6 +102,7 @@ namespace ClassicUO.Assets
             AnimData.Dispose();
             Arts.Dispose();
             EcArts.Dispose();
+            EcAnimations.Dispose();
             EcStringDictionary.Dispose();
             EcTileArt.Dispose();
             Maps.Dispose();
@@ -168,6 +171,7 @@ namespace ClassicUO.Assets
             AnimData.Load();
             Arts.Load();
             EcArts.Load();
+            EcAnimations.Load();
             EcStringDictionary.Load();
             EcTileArt.Load();
             Maps.Load();
