@@ -438,6 +438,131 @@ For comparison, the legacy-with-scale branch uses
 CC-coord values to HD-pixel source coords. That branch isn't used for
 ordinary statics either.
 
+### Multi-texture composition (SUB_9_7 texture groups)
+
+Each tileart record has four texture groups (`WorldArt`, `TileArtLegacy`,
+`TileArtEnhanced`, `Textures`) and each group can be empty OR contain
+**multiple textures** plus a **pixel shader ID**:
+
+```
+group:
+  u8 val               (0 = empty group; non-zero = has shader+textures)
+  u8 ?
+  u32 ShaderId         (the pixel shader to use for this composite)
+  u8 Count
+  Count × { u32 sd_off, u8, f32 TextureRepetition, u32, u32 }   (17 B per tex)
+  u32 c2; c2 × u32     (per-tex transform indices?)
+  u32 c3; c3 × u32     (per-tex hue/colour indices?)
+```
+
+**Shader-ID distribution** across all 16,294 populated records:
+
+| Group | Shader | Tex count | Tiles | Notes |
+|-------|--------|-----------|-------|-------|
+| WorldArt (KR HD) | `0x0001` | 2 | 9,175 | **standard `main + noise`** |
+| WorldArt | `0x0001` | 1 | 2,878 | single texture |
+| WorldArt | `0x0001` | 3 | 294   | adds a third overlay |
+| WorldArt | `0x0BDF` | 4 | 299   | **custom 4-input composite** |
+| WorldArt | `0x0BDF` | 3 | 30    | |
+| WorldArt | `0x36C7` | 4 | 190   | **custom 4-input composite** |
+| WorldArt | `0x36C7` | 3 | 132   | |
+| WorldArt | `0x28500000` | 8 | 2 | outlier — 8-input mega-composite |
+| TileArtLegacy / TileArtEnhanced / Textures | `0x0001` only | 1–3 | all | always default shader |
+
+`Shader = 0x0001` corresponds to **`UOSpriteShader`** (per the Ghidra
+string-table dump). Custom shaders `0x0BDF` and `0x36C7` are
+specialised composites used by ~3% of tiles (mostly carpets, multi-
+pattern rugs, decorated floors). The two `0x28500000` outlier tiles
+are presumably high-fidelity hero pieces.
+
+### `UOSpriteShader` is D3D9 Fixed-Function ✅ VERIFIED via Ghidra
+
+`FUN_00593860` (the `UOSpriteShader` constructor) sets the object's
+vftable to **`UOSpriteShaderFFP::vftable`** — "FFP" = **Fixed-Function
+Pipeline**. The constructor binds **two textures** at struct offsets
+`puVar2[0x3a]` (stage 0) and `puVar2[0x3b]` (stage 1):
+
+```c
+puVar2[0x3a] = first_texture;   // main tile sprite
+puVar2[0x3b] = second_texture;  // built-in noise (sd_off = 3)
+```
+
+No custom HLSL is required to reproduce this — it's D3D9 multi-stage
+texture blending using fixed-function ops (`MODULATE` of the two
+stages, likely with stage 1 sampled at `uv × TextureRepetition`).
+
+**Implication for the CUO port**: the standard 75% composite can be
+reproduced via a 2-stage multiply: `output = sample(main, uv) ×
+sample(noise, uv × 16)`. Either:
+- A trivial CUO custom pixel shader that does `tex2D(s0, uv0) *
+  tex2D(s1, uv1)` with `uv1 = uv0 × TextureRepetition`, OR
+- Bake the composite at texture-upload time (multiply pixels once,
+  then draw as a normal sprite — no shader needed, costs CPU at
+  load but free at render).
+
+The CPU-bake approach is much simpler for a first implementation
+and fits CUO's existing static-texture caching model. The downside
+is that the `TextureRepetition` factor is fixed at bake time, so
+edits would require recaching.
+
+Custom shaders `0x0BDF` and `0x36C7` (the carpet variants) are
+presumably real HLSL — `Shaders.uop` would hold their compiled
+effect bytecode. That's a separate research item.
+
+### The magic `sd_off = 3` noise reference
+
+The standard `0x0001` composite always pairs the per-tile texture
+with a second texture at **`sd_off = 3, TextureRepetition = 16`**.
+`sd_off = 3` falls **inside the dictionary's 16-byte header region** —
+i.e. there's no actual string there. It's almost certainly a **magic
+constant** the EC engine recognises and substitutes with a hard-coded
+**built-in noise / pattern texture** that tiles 16× across the cell
+for visual variation. Without it, EC carpets and floors would render
+as flat, uniform fields.
+
+### Composition examples (tiles 2749, 2750, 2768 — all carpets)
+
+| Tile | Shader | Texture references                      |
+|------|--------|------------------------------------------|
+| 2750 | `0x0001` | `[main_carpet, noise(rep=16)]`         |
+| 2768 | `0x0001` | `[main_carpet, noise(rep=16)]`         |
+| 2749 | `0x0BDF` | 4 textures — pattern A, base color (rep=4), pattern A again, decoration overlay |
+
+Tile 2749's variant pattern shows the custom shader provides a more
+elaborate composite (e.g. multi-layered weave) than the standard
+single-noise overlay.
+
+### CUO implementation status
+
+The current C# port (`EcTileArtLoader.cs::ParseTextureGroup`):
+- **Reads** the shader ID but **discards it** (all groups → flat
+  `List<EcSpriteRef>`).
+- **Consumes** only the FIRST texture reference per group when
+  rendering. The noise overlay and any subsequent textures are
+  parsed but never applied at draw time.
+
+**Fidelity gap**: standard-shader tiles render with no noise variation
+(uniform texture instead of EC's variegated look). Custom-shader tiles
+render the wrong layer entirely (whichever is at index 0).
+
+**Why this isn't catastrophic** in our current state: the FlagsEc bit-34
+iso-rotation bypass already routes surface tiles (which is what most
+multi-texture tiles are — carpets, floors, roofs) to CC's pre-projected
+art, which has its own colour variation baked in. Walls and statues
+that stay on the EC HD path use shader `0x0001` with 2 textures, so
+they lose only the noise overlay — a subtle aesthetic loss.
+
+**Path to full fidelity** (future work):
+1. Implement standard `0x0001` 2-texture composite as a custom pixel
+   shader (multiply main × noise(uv*rep)). Covers ~9,175 tiles.
+2. Reverse-engineer shaders `0x0BDF` and `0x36C7` from Ghidra. Covers
+   ~650 tiles.
+3. Implement the magic-noise texture (sd_off = 3) — either reverse-
+   engineer EC's built-in or supply our own equivalent.
+4. The chunked-mesh terrain renderer (the other future-work item) is
+   the natural place to host all this — EC uses the same multi-stage
+   sampler pipeline for terrain and surface statics.
+
 ### Constants (read directly from `UOSA.exe`)
 
 | Symbol          | VA          | Value     | Meaning                                |
