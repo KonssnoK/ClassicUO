@@ -307,7 +307,30 @@ namespace ClassicUO.Renderer.Arts
             // HD resolution: this tile's master may be a sibling's HD DDS
             // (FUN_00459390 / FUN_0051a840 — the engine picks the rect from
             // EcImage but the texture handle is shared across the group).
-            int masterArtId = GetMasterArtId(artId);
+            //
+            // Caveat: borrowing a sibling's HD with our own EcImage crop
+            // only works when both tiles describe the same visual content
+            // (banner-style multi-cell sprites). For tiles that just happen
+            // to share a string-group with a different sibling (e.g. tile
+            // 521 vs 520 — both walls but different facings), cropping
+            // 520's HD with 521's EcImage yields 520's content shown at
+            // 521's slot. Detect that case by requiring the tile to either
+            // own the master OR have no EcImage rect; otherwise fall back
+            // to the legacy DDS.
+            // HD master resolution. Priority:
+            //   1. The tileart record's WorldArt[0] reference — the engine's
+            //      authoritative pointer at which HD texture to use. For
+            //      tile 521 this resolves to sprite id 519 (Plaster_Wall.tga).
+            //   2. Fall back to the string-group heuristic for records that
+            //      don't expose a usable WorldArt[0].
+            int hdSpriteId = -1;
+            if (meta != null && meta.WorldArt != null && meta.WorldArt.Count > 0
+                && meta.WorldArt[0].Namespace == EcSpriteNamespace.WorldArt
+                && meta.WorldArt[0].SpriteId >= 0)
+            {
+                hdSpriteId = meta.WorldArt[0].SpriteId;
+            }
+            int masterArtId = hdSpriteId >= 0 ? (hdSpriteId + 0x4000) : GetMasterArtId(artId);
 
             byte[] dds = null;
             bool fromHd = false;
@@ -374,8 +397,19 @@ namespace ClassicUO.Renderer.Arts
             // (FNA's Texture2D.GetData on a DXT5 surface returns the raw
             // compressed blocks, not decoded pixels — that's why we decode
             // the DDS bytes directly here.)
+            // Mask preprocessing is calibrated to the HD master pixels;
+            // applying it to a legacy DDS rewrites the wrong pixels to
+            // greyscale and changes the visible colour balance vs the
+            // surrounding HD tiles. Skip the mask when we fell back to
+            // legacy (fromHd = false) so KR-fallback tiles match their
+            // HD neighbours.
+            // Mask must be fetched for the SAME tile whose color DDS we loaded
+            // (the master) — otherwise dimensions mismatch and DecodeDxt5Rgba
+            // overruns. When a tile borrows a sibling's HD master (e.g. 521
+            // → 519), the borrowed master also owns the canonical mask.
             bool maskApplied = false;
-            if (_arts.TryGetMaskByArtId(artId, out byte[] maskDds))
+            int maskArtId = hdLoadedFromArtId >= 0 ? hdLoadedFromArtId : artId;
+            if (fromHd && _arts.TryGetMaskByArtId(maskArtId, out byte[] maskDds))
             {
                 try
                 {
@@ -396,6 +430,33 @@ namespace ClassicUO.Renderer.Arts
                 _hasMask.Add(artId);
             else
                 _hasMask.Remove(artId);
+
+            // Apply EC's standard MODULATE noise composite. Required so a
+            // KR-mode legacy fallback tile (no own HD, falling back to
+            // tileartlegacy DDS) visually matches its noise-modulated
+            // KR HD neighbours — without it, the fallback shows a bright
+            // un-modulated sprite that clashes with the surroundings.
+            // Skipped when a hue mask was applied: the partial-hue shader
+            // needs R==G==B pixels to detect hueable areas, and noise
+            // multiply breaks that invariant.
+            // Skipped in UopEC mode: that mode is the "flat 2D" look —
+            // no noise modulation desired.
+            if (!maskApplied && _mode == EcArtMode.UopKR)
+            {
+                try
+                {
+                    var noisy = CompositeWithNoise(dds, tex.Width, tex.Height, rep: 1f);
+                    if (noisy != null)
+                    {
+                        tex.Dispose();
+                        tex = noisy;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"EcArt: noise composite failed for id {artId}: {ex.Message}");
+                }
+            }
 
             // Source rect:
             //   Legacy: whole canvas (canvas-origin shares with CC).
@@ -481,11 +542,25 @@ namespace ClassicUO.Renderer.Arts
                     // align by CC content bbox, not by canvas bottom-center).
                 }
             }
-            // Legacy: kept on full-canvas src. FUN_0051af20 reads
-            // LegacyImage (X1-X0, Y1-Y0) and an optional fit-to-44 scale
-            // but using those as a raw source crop didn't help the roof
-            // rendering — the rect likely represents display dimensions
-            // / hit-test, not where to crop in the DDS.
+            // KR-mode legacy fallback carry-over: when we fell through to
+            // a legacy DDS for a tile that has its own EcImage rect (e.g.
+            // tile 521: no own HD master + populated EcImage), apply the
+            // EcImage dx/dy to the anchor so the legacy DDS lands where
+            // the HD master would have placed it. Without this, the
+            // legacy DDS uses CC's tight canvas anchor, which differs by
+            // tens of pixels for tall walls / hanging signs.
+            // UopEC mode skips this — it wants the flat 2D CC-anchor look.
+            if (!fromHd && _mode == EcArtMode.UopKR
+                && meta != null && meta.EcImage.IsPopulated)
+            {
+                int dx = meta.EcImage.PixelsXOffset;
+                int dy = meta.EcImage.PixelsYOffset;
+                int unscaledShiftX = System.Math.Max(dx, 0) - System.Math.Abs(dx) / 2;
+                int unscaledShiftY = System.Math.Max(dy, 0) - System.Math.Abs(dy);
+                const float HD_TO_CC_FALLBACK = 1f / 1.5f;
+                anchorX = (int)(unscaledShiftX * HD_TO_CC_FALLBACK);
+                anchorY = (int)(unscaledShiftY * HD_TO_CC_FALLBACK);
+            }
 
             art = new EcRenderArt
             {
@@ -563,6 +638,74 @@ namespace ClassicUO.Renderer.Arts
         // most ~256x256 here.
         private Color[] _scanBuf;
         private Color[] _maskBuf;
+
+        // Noise overlay (build/worldart/01000045.dds) — referenced as
+        // sd_off=3 in tileart records' WorldArt groups. EC's standard
+        // UOSpriteShader (the D3D9 FFP variant) MODULATEs every static
+        // sprite by this 256×256 noise pattern to add subtle variation.
+        // Decoded once on first use; we composite per-tile at upload time.
+        private Color[] _noisePixels;
+        private const int NOISE_DIM = 256;
+        private const int NOISE_ART_ID = 45;   // → build/worldart/01000045.dds via mask-id math
+
+        private void EnsureNoise()
+        {
+            if (_noisePixels != null) return;
+            if (!_arts.TryGetMaskByArtId(NOISE_ART_ID, out byte[] noiseDds)) return;
+            byte[] rgba = DecodeDxt5Rgba(noiseDds, NOISE_DIM, NOISE_DIM);
+            if (rgba == null) return;
+            _noisePixels = new Color[NOISE_DIM * NOISE_DIM];
+            for (int i = 0; i < _noisePixels.Length; i++)
+            {
+                int o = i * 4;
+                _noisePixels[i] = new Color(rgba[o], rgba[o + 1], rgba[o + 2], rgba[o + 3]);
+            }
+        }
+
+        /// <summary>
+        /// CPU-bake the standard EC noise composite: multiply the main
+        /// DXT5 texture by the built-in noise pattern at every pixel.
+        /// Returns a fresh uncompressed Color texture, or null on failure.
+        /// </summary>
+        private Texture2D CompositeWithNoise(byte[] mainDds, int width, int height, float rep = 1f)
+        {
+            EnsureNoise();
+            if (_noisePixels == null) return null;
+            byte[] main = DecodeDxt5Rgba(mainDds, width, height);
+            if (main == null) return null;
+
+            int total = width * height;
+            if (_scanBuf == null || _scanBuf.Length < total)
+                _scanBuf = new Color[total];
+
+            // Sample noise at (x * rep / W * 256, y * rep / H * 256) wrapping
+            // mod 256. With rep=1 the full noise tile covers the sprite once;
+            // higher rep tiles it more finely.
+            int nm = NOISE_DIM - 1;     // wrap mask (256 is POT)
+            for (int y = 0; y < height; y++)
+            {
+                int ny = (int)((float)y * rep / height * NOISE_DIM) & nm;
+                int nyRow = ny * NOISE_DIM;
+                int rowOffset = y * width;
+                for (int x = 0; x < width; x++)
+                {
+                    int nx = (int)((float)x * rep / width * NOISE_DIM) & nm;
+                    Color n = _noisePixels[nyRow + nx];
+                    int mo = (rowOffset + x) * 4;
+                    byte r = main[mo], g = main[mo + 1], b = main[mo + 2], a = main[mo + 3];
+                    // MODULATE: out_rgb = main_rgb * noise_rgb / 255
+                    _scanBuf[rowOffset + x] = new Color(
+                        (byte)((r * n.R) / 255),
+                        (byte)((g * n.G) / 255),
+                        (byte)((b * n.B) / 255),
+                        a);
+                }
+            }
+
+            var tex = new Texture2D(_device, width, height, false, SurfaceFormat.Color);
+            tex.SetData(_scanBuf, 0, total);
+            return tex;
+        }
 
         /// <summary>
         /// Decompresses the color and mask DXT5 DDSes on the CPU, applies

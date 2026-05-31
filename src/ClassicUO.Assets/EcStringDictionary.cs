@@ -10,30 +10,24 @@ using System.IO.Compression;
 namespace ClassicUO.Assets
 {
     /// <summary>
-    /// Reads the EC string_dictionary.uop blob and provides
-    /// "sd_off -> string" lookups used by tileart's SUB_9_7 texture refs.
+    /// Reads the EC string_dictionary.uop blob and provides index-based
+    /// string lookups used by tileart's SUB_9 texture refs and elsewhere.
     ///
     /// Format of the inner blob (build/stringdictionary/string_dictionary.bin):
-    ///   16-byte header (magic + counts; not needed for lookup)
-    ///   repeating: u16 length, [length] bytes ASCII content
-    /// Strings are NOT null-terminated. The tileart sd_off is a *byte* offset
-    /// that lands somewhere inside one of the content ranges; we binary-search
-    /// to find the containing entry and return its full content.
-    ///
-    /// Verified end-to-end against tools/ec_research/scripts/58_real_lookup.py.
+    ///   14-byte header: i64 unk + u32 StringCount + i16 unk
+    ///   StringCount entries of: u16 length, [length] bytes ASCII content
+    /// The tileart "sd_off" value is NOT a byte offset — it is the 0-based
+    /// INDEX into the string list, matching UOReader's GetStringAtPosition.
     /// </summary>
     public sealed class EcStringDictionary : UOFileLoader
     {
         private UOFileUop _file;
-        // Parallel arrays sorted by content_start for binary search.
-        private int[] _starts = Array.Empty<int>();
-        private int[] _ends   = Array.Empty<int>();   // exclusive
-        private string[] _contents = Array.Empty<string>();
+        private string[] _strings = Array.Empty<string>();
 
         public EcStringDictionary(UOFileManager fileManager) : base(fileManager) { }
 
-        public bool IsLoaded => _starts.Length > 0;
-        public int EntryCount => _starts.Length;
+        public bool IsLoaded => _strings.Length > 0;
+        public int EntryCount => _strings.Length;
 
         public override void Load()
         {
@@ -61,7 +55,7 @@ namespace ClassicUO.Assets
                 if (blob == null) return;
 
                 ParseBlob(blob);
-                Log.Trace($"EcStringDictionary: loaded {_starts.Length} entries from {path}");
+                Log.Trace($"EcStringDictionary: loaded {_strings.Length} entries from {path}");
             }
             catch (Exception ex)
             {
@@ -92,66 +86,39 @@ namespace ClassicUO.Assets
 
         private void ParseBlob(byte[] blob)
         {
-            // First pass: count entries to size the arrays exactly.
-            int p = 16;
+            // Header: i64 unk + u32 StringCount + i16 unk = 14 bytes.
+            if (blob.Length < 14) return;
+            uint count = BinaryPrimitives.ReadUInt32LittleEndian(blob.AsSpan(8));
+            _strings = new string[count];
+
+            int p = 14;
             int n = blob.Length;
-            int count = 0;
-            while (p + 2 <= n)
+            for (int i = 0; i < count && p + 2 <= n; i++)
             {
                 ushort len = BinaryPrimitives.ReadUInt16LittleEndian(blob.AsSpan(p));
-                if (len == 0 || len > 500) break;
-                if (p + 2 + len > n) break;
-                count++;
-                p += 2 + len;
-            }
-
-            _starts = new int[count];
-            _ends   = new int[count];
-            _contents = new string[count];
-
-            p = 16;
-            int i = 0;
-            while (i < count && p + 2 <= n)
-            {
-                ushort len = BinaryPrimitives.ReadUInt16LittleEndian(blob.AsSpan(p));
-                int contentStart = p + 2;
-                int contentEnd   = contentStart + len;
-                // Range is [prefix_start, content_end): sd_off may legitimately
-                // land on the u16 length prefix bytes (seen on tile 200 etc.)
-                _starts[i] = p;
-                _ends[i]   = contentEnd;
-                _contents[i] = System.Text.Encoding.ASCII.GetString(blob, contentStart, len);
-                p = contentEnd;
-                i++;
+                p += 2;
+                if (p + len > n) break;
+                _strings[i] = System.Text.Encoding.ASCII.GetString(blob, p, len);
+                p += len;
             }
         }
 
         /// <summary>
-        /// Returns the dictionary string whose byte range contains <paramref name="offset"/>.
+        /// Returns the dictionary string at the given 0-based index.
+        /// Mirrors UOReader's StringDictionary.GetStringAtPosition.
         /// </summary>
-        public string GetStringAtOffset(int offset)
+        public string GetStringAtOffset(int index)
         {
-            if (_starts.Length == 0) return null;
-
-            // Binary search by start; check range.
-            int lo = 0, hi = _starts.Length;
-            while (lo < hi)
-            {
-                int mid = (lo + hi) >> 1;
-                if (offset < _starts[mid])      hi = mid;
-                else if (offset >= _ends[mid])  lo = mid + 1;
-                else                             return _contents[mid];
-            }
-            return null;
+            if (_strings.Length == 0) return null;
+            if ((uint)index >= (uint)_strings.Length) return _strings[0];
+            return _strings[index];
         }
 
         public override void ClearResources()
         {
             _file?.Dispose();
             _file = null;
-            _starts = Array.Empty<int>();
-            _ends = Array.Empty<int>();
-            _contents = Array.Empty<string>();
+            _strings = Array.Empty<string>();
         }
     }
 }

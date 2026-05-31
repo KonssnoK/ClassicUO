@@ -551,16 +551,25 @@ namespace ClassicUO.Game.Map
                     }
                     else
                     {
-                        // EC mode (flat 2D from LegacyTexture.uop). Use the
-                        // CC art's canvas dimensions for the anchor — the
-                        // EC DDS is POT-padded with content at the top-left,
-                        // so CC's standard anchor math (W/2-22, H-44) lands
-                        // the EC content exactly where CC would place its
-                        // own art. POT transparency is invisible.
-                        ax = (artInfo.UV.Width  >> 1) - 22;
-                        ay =  artInfo.UV.Height       - 44;
+                        // Legacy DDS path (UopEC mode OR KR-mode fallback
+                        // when the tile has no own HD master). Uses CC's
+                        // canvas anchor — the EC DDS is POT-padded with
+                        // content at the top-left, so CC's standard math
+                        // (W/2-22, H-44) lands the content where CC would.
+                        // anchorX/anchorY are 0 in UopEC mode (the flat 2D
+                        // look) and non-zero in KR-fallback mode (carries
+                        // the EcImage dx/dy so the legacy DDS sits where
+                        // the HD master would have been placed).
+                        ax = (artInfo.UV.Width  >> 1) - 22 - ecArt.AnchorX;
+                        ay =  artInfo.UV.Height       - 44 - ecArt.AnchorY;
                         src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
                         scaleX = scaleY = 1f;
+                        // KR-mode legacy fallback: bypass hue tinting so the
+                        // noise-composited legacy DDS isn't re-shaded by the
+                        // partial-hue path — keeps colour parity with the
+                        // surrounding HD tiles (which already do this).
+                        if (ec.Mode == Renderer.Arts.EcArtMode.UopKR)
+                            hueVec.Y = ShaderHueTranslator.SHADER_NONE;
                     }
                     int ecPosX = baseX - ax;
                     int ecPosY = baseY - ay;

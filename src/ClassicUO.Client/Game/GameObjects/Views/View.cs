@@ -146,11 +146,11 @@ namespace ClassicUO.Game.GameObjects
                 }
                 else
                 {
-                    // EC mode: full DDS source + CC art's canvas anchor.
-                    // POT padding stays transparent; CC anchor lands EC
-                    // content where CC would place its own art.
-                    ax = (artInfo.UV.Width  >> 1) - 22;
-                    ay =  artInfo.UV.Height       - 44;
+                    // Legacy DDS path. AnchorX/Y = 0 in UopEC mode (flat
+                    // CC look); in KR-mode fallback they carry EcImage's
+                    // dx/dy so the legacy DDS lands where HD would have.
+                    ax = (artInfo.UV.Width  >> 1) - 22 - ecArt.AnchorX;
+                    ay =  artInfo.UV.Height       - 44 - ecArt.AnchorY;
                     src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
                     drawScale = Vector2.One;
                 }
@@ -335,9 +335,10 @@ namespace ClassicUO.Game.GameObjects
                     }
                     else
                     {
-                        // EC mode: full DDS + CC anchor (matches commit 5e0475334).
-                        ax = (artInfo.UV.Width  >> 1) - 22;
-                        ay =  artInfo.UV.Height       - 44;
+                        // Legacy DDS path + CC anchor. AnchorX/Y carry the
+                        // EcImage dx/dy in KR-fallback mode; 0 in UopEC.
+                        ax = (artInfo.UV.Width  >> 1) - 22 - ecArt.AnchorX;
+                        ay =  artInfo.UV.Height       - 44 - ecArt.AnchorY;
                         src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
                         drawScale = Vector2.One;
                     }

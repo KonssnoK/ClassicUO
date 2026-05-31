@@ -100,7 +100,7 @@ if (enabled != 0):
     DWORD shader                  ← shader pointer (semantics opaque)
     BYTE  refCount
     refCount × {                  ← 17 bytes per texture reference
-        DWORD sd_off              ← StringDictionary byte offset
+        DWORD sdIndex             ← StringDictionary 0-based INDEX (not byte offset!)
         BYTE
         FLOAT tileRepetition      ← 1.0 normally; >1 for tiling textures
         DWORD
@@ -110,11 +110,15 @@ if (enabled != 0):
     DWORD tertiaryCount;   tertiaryCount × DWORD
 ```
 
-`sd_off` is a byte offset into the inner blob of `string_dictionary.uop`. It
-doesn't necessarily land at the start of a string entry — different tiles
-that share the same texture often have nearby but distinct `sd_off` values
-that all fall *within* the same Pascal-style string in the dictionary
-(`u16 length` + `length` ASCII bytes).
+**Verified 2026-05-31 against UOReader's `StringDictionary.GetStringAtPosition`
+and `stringDictionaryData.LoadUOP`**: the `sdIndex` field is the **0-based
+index** into the parsed string list, not a byte offset into the blob.
+Distinct tiles that *appeared* to share a string under a byte-offset
+interpretation actually point at different list entries that happen to
+contain similar text (e.g. tile 519 → index 1552 = `00000519_Plaster_Wall.tga`;
+tile 521 → index 1552 too, since 521 reuses 519's HD master). The dictionary
+header is 14 bytes (`i64 + u32 StringCount + i16`), followed by
+`StringCount` Pascal-style entries (`u16 length` + ASCII).
 
 ## Resolution chain for 2D static placement (verified in-game)
 

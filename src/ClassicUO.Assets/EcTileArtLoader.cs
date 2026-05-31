@@ -284,7 +284,10 @@ namespace ClassicUO.Assets
                 byte v = r.U8();
                 if (v == 0) { uint sub = r.U32(); for (uint k = 0; k < sub; k++) { r.U32(); r.U32(); } }
                 else if (v == 1) { r.U8(); r.U32(); }
-                else break;
+                // Per UOReader: subval != 0 && != 1 → just skip this item
+                // (continue), DO NOT break out of the loop or every
+                // subsequent field gets shifted and the SUB_9_7 texture
+                // refs come out as garbage (tile 521 case).
             }
 
             // SUB_9_5 sitting
