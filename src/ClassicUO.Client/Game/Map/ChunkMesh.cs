@@ -284,10 +284,27 @@ namespace ClassicUO.Game.Map
             var ec = Client.Game.UO.EcArts;
             if (ec != null && ec.IsEnabled)
             {
-                // Absorbed tile: a consecutive sibling sharing the same
-                // tileart name owns the HD asset and draws the whole group.
-                // Skip this tile entirely so the legacy fragment doesn't
-                // double up next to the full HD piece (e.g. banner 5649/5650).
+                // Surface-tile bypass must match Pass 2 (TryAddStaticLike)
+                // exactly — Pass 1 sizes the buckets, Pass 2 fills them.
+                // If Pass 1 counts EC art but Pass 2 skips it (or vice
+                // versa) the GetNextIndex stream goes out of sync and
+                // WriteQuadAt crashes / writes to wrong slots.
+                // Iso-rotation flag = bit 34 of FlagsEc in the tileart
+                // record (UOReader labels it "Unused1" in its EC FLAGS
+                // line). It's an EC-engine-only flag — CC's tiledata
+                // doesn't expose it. Set on tiles whose HD master is
+                // axis-aligned and needs iso-projection (carpets, multi-
+                // texture composites, slate roofs). Walls, statues,
+                // signposts don't have it. We fall back to CC's pre-iso-
+                // projected art for these tiles.
+                const ulong EC_FLAG_NEEDS_ISO = 1UL << 34;
+                bool needsIsoBypass = ec.Mode == Renderer.Arts.EcArtMode.UopKR
+                    && Client.Game.UO.FileManager.EcTileArt.TryGet(
+                           graphic + 0x4000, out var ___ecMeta)
+                    && ___ecMeta != null
+                    && (___ecMeta.FlagsEc & EC_FLAG_NEEDS_ISO) != 0;
+                if (!needsIsoBypass)
+                {
                 if (ec.IsAbsorbedByHdSibling(graphic + 0x4000))
                     return;
                 if (ec.TryGet(graphic + 0x4000, out var ecArt))
@@ -300,10 +317,9 @@ namespace ClassicUO.Game.Map
                     _staticsBuckets.Count(ecArt.Texture);
                     return;
                 }
-                // No EC art: in diagnostic mode hide the tile entirely; in
-                // normal mode fall back to CC art below.
                 if (ec.DiagnosticMode)
                     return;
+                }
             }
 
             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
@@ -464,6 +480,33 @@ namespace ClassicUO.Game.Map
             var ec = Client.Game.UO.EcArts;
             if (ec != null && ec.IsEnabled)
             {
+                // Surface tiles (carpets, water, floors, slate roofs) are
+                // pre-iso-projected in CC art (44×44 diamonds) but stored
+                // as axis-aligned textures in EC's HD master. Rendering
+                // the HD master as a normal sprite gives a flat square
+                // instead of the iso diamond. Until the chunked-mesh
+                // terrain renderer is wired in (which is what EC uses
+                // for these tiles), fall back to CC art for the Surface
+                // flag in KR mode — CC's pre-projected diamond renders
+                // correctly. UopEC mode already works because the legacy
+                // DDS is itself pre-projected.
+                // Must match Pass 1 (CountStaticLike) exactly — using a
+                // different predicate here drifts the bucket index stream
+                // and crashes WriteQuadAt. Bit 34 of FlagsEc in the
+                // tileart record (= UOReader's "Unused1") flags tiles
+                // whose HD master is axis-aligned and needs iso-projection.
+                const ulong EC_FLAG_NEEDS_ISO_2 = 1UL << 34;
+                bool needsIsoBypass2 = ec.Mode == Renderer.Arts.EcArtMode.UopKR
+                    && Client.Game.UO.FileManager.EcTileArt.TryGet(
+                           graphic + 0x4000, out var ___ecMeta2)
+                    && ___ecMeta2 != null
+                    && (___ecMeta2.FlagsEc & EC_FLAG_NEEDS_ISO_2) != 0;
+                if (needsIsoBypass2)
+                {
+                    // fall through to CC path below
+                }
+                else
+                {
                 if (ec.IsAbsorbedByHdSibling(graphic + 0x4000))
                     return;
                 if (ec.TryGet(graphic + 0x4000, out var ecArt))
@@ -535,6 +578,7 @@ namespace ClassicUO.Game.Map
                 }
                 if (ec.DiagnosticMode)
                     return;
+                }   // close 'else' for Surface-tile bypass
             }
 
             ref var artIndex = ref Client.Game.UO.FileManager.Arts.File.GetValidRefEntry(graphic + 0x4000);

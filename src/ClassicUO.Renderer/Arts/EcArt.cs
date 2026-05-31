@@ -409,7 +409,10 @@ namespace ClassicUO.Renderer.Arts
             if (fromHd)
             {
                 if (meta != null && meta.EcImage.IsPopulated && meta.LegacyImage.IsPopulated
-                    && meta.EcImage.X1 > 0 && meta.EcImage.Y1 > 0)
+                    && meta.EcImage.X1 > 0 && meta.EcImage.Y1 > 0
+                    && meta.EcImage.X0 < tex.Width && meta.EcImage.Y0 < tex.Height
+                    && (meta.EcImage.X1 + 1) > meta.EcImage.X0
+                    && (meta.EcImage.Y1 + 1) > meta.EcImage.Y0)
                 {
                     // KR HD with explicit EcImage: sub-rect of the master,
                     // +1 on X1/Y1 for exclusive bounds. Per UOReader, the
@@ -417,14 +420,10 @@ namespace ClassicUO.Renderer.Arts
                     // signed canvas-padding around the sprite, collapsed
                     // into a (shiftX, shiftY) offset from bottom-center
                     // anchor (same formula as the EC legacy path).
-                    int x0 = meta.EcImage.X0;
-                    int y0 = meta.EcImage.Y0;
-                    int x1 = meta.EcImage.X1 + 1;
-                    int y1 = meta.EcImage.Y1 + 1;
-                    x0 = System.Math.Clamp(x0, 0, tex.Width);
-                    y0 = System.Math.Clamp(y0, 0, tex.Height);
-                    x1 = System.Math.Clamp(x1, x0 + 1, tex.Width);
-                    y1 = System.Math.Clamp(y1, y0 + 1, tex.Height);
+                    int x0 = System.Math.Clamp(meta.EcImage.X0, 0, tex.Width - 1);
+                    int y0 = System.Math.Clamp(meta.EcImage.Y0, 0, tex.Height - 1);
+                    int x1 = System.Math.Clamp(meta.EcImage.X1 + 1, x0 + 1, tex.Width);
+                    int y1 = System.Math.Clamp(meta.EcImage.Y1 + 1, y0 + 1, tex.Height);
                     srcX = x0; srcY = y0; srcW = x1 - x0; srcH = y1 - y0;
 
                     // UNIFORM HD→CC scale: the HD master texture pixel pitch
