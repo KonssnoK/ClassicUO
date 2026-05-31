@@ -292,6 +292,9 @@ namespace ClassicUO.Game.Map
                     return;
                 if (ec.TryGet(graphic + 0x4000, out var ecArt))
                 {
+                    // Outline-debug mode: skip BOTH counting and vertex-write
+                    // so EC-replaced tiles vanish, making them obvious.
+                    if (ec.OutlineMode) return;
                     // Route to EC bucket — each EC tile's DDS is its own
                     // Texture2D so this becomes one draw call per unique tile.
                     _staticsBuckets.Count(ecArt.Texture);
@@ -470,12 +473,23 @@ namespace ClassicUO.Game.Map
                     float scaleX, scaleY;
                     if (ecArt.FromHd)
                     {
-                        // KR HD EcImage-crop path: bottom-center on the cell
-                        // + signed dx/dy shift from EcImage[4]/[5].
-                        // Truncating cast — matches prior pixel-exact math.
+                        // KR HD EcImage-crop path. Horizontal anchor uses
+                        // CC-bbox alignment alone: where CC's own art draws
+                        // its content within the canvas. EC's dx happens
+                        // to approximate this for W walls (positive shift)
+                        // but is wrong for N walls (CC content is left-of-
+                        // center but dx is near zero). Using CC-bbox as the
+                        // single source of truth pulls EC content to CC's
+                        // exact horizontal position, regardless of facing.
+                        //
+                        // Vertical anchor still uses dy via ecArt.AnchorY —
+                        // dy IS the right signal for elevation (signposts
+                        // with dy=-110 hang correctly).
                         int dispW = (int)(ecArt.Source.Width  * ecArt.Scale.X);
                         int dispH = (int)(ecArt.Source.Height * ecArt.Scale.Y);
-                        ax = (dispW >> 1) - 22 - ecArt.AnchorX;
+                        var ccBox = Client.Game.UO.Arts.GetRealArtBounds((uint)graphic);
+                        int ccBboxOffsetX = ccBox.X + (ccBox.Width >> 1) - (artInfo.UV.Width >> 1);
+                        ax = (dispW >> 1) - 22 - ccBboxOffsetX;
                         ay = dispH       - 44 - ecArt.AnchorY;
                         src = ecArt.Source;
                         scaleX = ecArt.Scale.X;
@@ -494,20 +508,23 @@ namespace ClassicUO.Game.Map
                     }
                     else
                     {
-                        // EC mode (flat 2D from LegacyTexture.uop). The DDS
-                        // is POT-padded; ecArt.Source already crops to the
-                        // actual sprite content rect (per LegacyImage). Use
-                        // those dimensions — NOT artInfo.UV — for bottom-
-                        // center anchor or the padding offsets the sprite.
-                        // AnchorX/AnchorY hold the signed LegacyImage dx/dy
-                        // canvas-padding shift (UOReader-equivalent).
-                        ax = (ecArt.Source.Width  >> 1) - 22 - ecArt.AnchorX;
-                        ay =  ecArt.Source.Height       - 44 - ecArt.AnchorY;
-                        src = ecArt.Source;
+                        // EC mode (flat 2D from LegacyTexture.uop). Use the
+                        // CC art's canvas dimensions for the anchor — the
+                        // EC DDS is POT-padded with content at the top-left,
+                        // so CC's standard anchor math (W/2-22, H-44) lands
+                        // the EC content exactly where CC would place its
+                        // own art. POT transparency is invisible.
+                        ax = (artInfo.UV.Width  >> 1) - 22;
+                        ay =  artInfo.UV.Height       - 44;
+                        src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
                         scaleX = scaleY = 1f;
                     }
                     int ecPosX = baseX - ax;
                     int ecPosY = baseY - ay;
+
+                    // Debug outline: when on, skip rendering EC statics
+                    // entirely so EC-replaced tiles appear as gaps.
+                    if (Client.Game.UO.EcArts.OutlineMode) return;
 
                     int ecIdx = _staticsBuckets.GetNextIndex(ecArt.Texture);
                     obj.MeshSpriteIndex = ecIdx;

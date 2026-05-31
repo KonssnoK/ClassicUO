@@ -146,11 +146,12 @@ namespace ClassicUO.Game.GameObjects
                 }
                 else
                 {
-                    // EC mode: cropped LegacyImage rect, anchor via Source
-                    // dims + signed dx/dy shift (UOReader-equivalent).
-                    ax = (ecArt.Source.Width  >> 1) - 22 - ecArt.AnchorX;
-                    ay =  ecArt.Source.Height       - 44 - ecArt.AnchorY;
-                    src = ecArt.Source;
+                    // EC mode: full DDS source + CC art's canvas anchor.
+                    // POT padding stays transparent; CC anchor lands EC
+                    // content where CC would place its own art.
+                    ax = (artInfo.UV.Width  >> 1) - 22;
+                    ay =  artInfo.UV.Height       - 44;
+                    src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
                     drawScale = Vector2.One;
                 }
 
@@ -334,10 +335,10 @@ namespace ClassicUO.Game.GameObjects
                     }
                     else
                     {
-                        // EC mode: cropped LegacyImage rect + signed dx/dy.
-                        ax = (ecArt.Source.Width  >> 1) - 22 - ecArt.AnchorX;
-                        ay =  ecArt.Source.Height       - 44 - ecArt.AnchorY;
-                        src = ecArt.Source;
+                        // EC mode: full DDS + CC anchor (matches commit 5e0475334).
+                        ax = (artInfo.UV.Width  >> 1) - 22;
+                        ay =  artInfo.UV.Height       - 44;
+                        src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
                         drawScale = Vector2.One;
                     }
                     var pos = new Vector2(x - ax, y - ay);

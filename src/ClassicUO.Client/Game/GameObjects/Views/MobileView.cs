@@ -761,14 +761,15 @@ namespace ClassicUO.Game.GameObjects
                     }
                 }
 
-                // EC AMOU frames are full-RGB (not palette-indexed) — the CC
-                // hue shader treats R==G==B pixels as hueable and tints them,
-                // which produces wrong colors for already-colored EC pixels.
-                // When EC anim source is active, bypass hue tinting.
+                // EC AMOU sprites store NEUTRAL palette colors (greyscale-
+                // ish skin) that get tinted at draw time by the character's
+                // body hue — same model as CC's partial-hue scheme. Force
+                // PARTIAL_HUED so R==G==B pixels (skin/clothing base) pick
+                // up the hue while RGB-colored details (clothes, weapons)
+                // pass through.
                 if (Client.Game.UO.EcAnimations?.IsEnabled == true)
                 {
-                    hueVec.X = 0;
-                    hueVec.Y = ShaderHueTranslator.SHADER_NONE;
+                    hueVec = ShaderHueTranslator.GetHueVector(hue, partial: true, hueVec.Z);
                 }
                 else
                 {

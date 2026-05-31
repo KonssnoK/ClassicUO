@@ -331,6 +331,97 @@ trimmed HD bbox aligned to CC content's bottom-right) can be retired
 once dx/dy padding is applied — the EC anchor is fully described by
 these two signed ints.
 
+### dx/dy in the binary: Ghidra trace ✅ VERIFIED
+
+UOReader's preview-window rendering uses dx/dy as canvas-padding, but
+that's *its* convention. We traced the actual engine usage end-to-end:
+
+1. **`FUN_00459390`** (asset-rect reader) populates a sprite-descriptor
+   struct from the tileart record. Both branches (EcImage-populated
+   and legacy fallback) read all 6 ints from the rect into `in_EAX[0..5]`:
+   ```
+   in_EAX[0..3] = X0, Y0, X1, Y1
+   in_EAX[4]    = dx              ← byte offset +0x10 in the struct
+   in_EAX[5]    = dy              ← byte offset +0x14
+   ```
+   EcImage branch adds `+1` to X1/Y1 (inclusive→exclusive). Legacy
+   branch multiplies X1/Y1 by `1.5` (CC-pixel → HD-pixel).
+
+2. **`FUN_0051a840`** (extracts to floats for callers) reads those exact
+   offsets:
+   ```c
+   *param_5 = *(float *)((int)local_a8 + 0x10);  // dx
+   *param_6 = *(float *)((int)local_a8 + 0x14);  // dy
+   ```
+
+3. **`FUN_004e4380`** consumes them and passes them by name as **"topleft"**
+   to a draw helper:
+   ```c
+   uVar4 = FUN_004d9b80(&DAT_00ca14d0, "topleft", (float)param_6, (float)param_7);
+   ```
+
+So dx/dy ARE live engine data — used as top-left screen-space offsets
+when rendering sprites. The four callers of `FUN_0051a840` (`0057e920`,
+`0057bfe0`, `004e4380`, `0051c240`) all hit UI/gump paths (strings:
+`iconName`, `iconScale`, `objectType`, `topleft`). World statics use
+the descriptor through different consumers (`005960f0`, `00445e70`).
+
+### Practical CUO port: where to apply dx/dy
+
+After empirical testing across multiple commits, the answer turns out
+to be path-dependent:
+
+#### Legacy/UopEC path → SKIP dx/dy, draw full DDS at CC anchor
+
+The "working" approach (commit `5e0475334`) for `tileartlegacy` DDS is:
+- Source = the **full POT-padded DDS** (e.g. 64×128 for a 44×113 wall)
+- Anchor math uses the **CC art's** canvas dimensions
+  (`artInfo.UV.Width/Height`), not the EC DDS dims:
+  ```csharp
+  ax = (artInfo.UV.Width  >> 1) - 22;
+  ay =  artInfo.UV.Height       - 44;
+  src = new Rectangle(0, 0, ecArt.Texture.Width, ecArt.Texture.Height);
+  ```
+- DDS content sits at top-left; transparent POT padding is invisible;
+  CC anchor places the content exactly where CC would place its own art.
+- **No LegacyImage crop, no dx/dy adjustment.**
+
+Applying UOReader's `canvas + |d|, draw at max(d,0)` math here breaks
+tiles whose content layout already matches CC (most of them) because
+CC's anchor formula implicitly accounts for the standard CC tile
+positioning that EC's DDS files preserve.
+
+#### KR/UopKR HD path → APPLY dx/dy with HD_TO_CC scale
+
+For HD master textures (Texture.uop / `build/worldart/`) cropped via
+`EcImage`:
+- Source = the EcImage sub-rect `(X0, Y0)..(X1+1, Y1+1)` of the master
+- **Scale** = `HD_TO_CC = 1/1.5 = 0.667` (NOT fit-to-44 — see below)
+- Anchor math:
+  ```csharp
+  int dispW = (int)(Source.Width  * Scale.X);
+  int dispH = (int)(Source.Height * Scale.Y);
+  ax = (dispW >> 1) - 22 - shiftX;     // ← shiftX from dx
+  ay =  dispH       - 44 - shiftY;     // ← shiftY from dy
+  ```
+- Where `shiftX = max(dx, 0) - |dx|/2`, `shiftY = max(dy, 0) - |dy|`
+  (collapses UOReader's canvas+abs+draw-at math into a single offset
+  from bottom-center anchor).
+
+The fit-to-44 scale we originally pulled from Ghidra (`FUN_0051a840`)
+turned out to be UI/icon path code. For world rendering we use the
+HD_TO_CC ratio from `DAT_00c853b4 = 1.5` — i.e. one HD pixel maps
+to two-thirds of a CC pixel. Without this, tiles like stone wall
+(EcImage 51×167 = ~75 CC pixels worth) get crushed to 34×111.
+
+#### EcImage-unpopulated tiles → fall through to legacy
+
+When a tile lacks an EcImage rect in KR mode, we cannot anchor the HD
+master without guessing, so we **fall back to the legacy DDS path**
+(EC tileartlegacy DDS with CC anchor). Previously we tried an alpha-
+trim + CC-bbox alignment hack — that's been retired now that dx/dy
+explains the off-center cases for HD tiles that DO have EcImage.
+
 ### Render scale
 
 Read from the EC binary at `DAT_00c9d1a0`:

@@ -267,6 +267,52 @@ Each sprite consumes 4 verts. EC batches N sprites into a single draw
 when they share the same primary texture, producing draws of size
 4, 16, 40, 80, 240 verts etc.
 
+## CUO integration — current state
+
+The C# port in `src/ClassicUO.Renderer/Arts/EcArt.cs` and
+`src/ClassicUO.Renderer/Animations/EcAnimation.cs` exposes three
+**tileart modes** via the `EcArtMode` enum, switchable in-game with F11:
+
+| Mode | Source | Anchor math | Mask | Notes |
+|---|---|---|---|---|
+| `ClassicMul` (0) | `art.mul` / `artLegacyMUL.uop` | CC native | — | Default; renderer skips EC entirely |
+| `UopKR` (1) | `Texture.uop` HD master + `EcImage` crop | bottom-center on cell + dx/dy + scale `1/1.5` | Partial-hue (`tileartlegacy/{1000000+id}.dds`) | Kingdom-Reborn-era big upscaled sprites; falls back to legacy DDS when no HD entry |
+| `UopEC` (2) | `LegacyTexture.uop` `tileartlegacy/{id}.dds` | CC anchor (`artInfo.UV`) on full POT-padded DDS | — | What the actual Enhanced Client uses for statics |
+
+EC **animations** are wired in via a separate F10 toggle (boolean —
+on/off, no tristate). When enabled:
+
+- `EcAnimationLoader` opens `AnimationFrame{1..6}.uop` and finds entries
+  by hash of `build/animationframe/{body:D6}/{action:D2}.bin`.
+- `EcAnimation` decodes the AMOU stream and builds a per-frame canvas
+  matching the file's MainBbox (so the body anchor stays stable across
+  frames).
+- `Animation.TryBuildEcFrames` translates CC's per-body-group action
+  number to AMOU's universal `HighAnimationGroup` numbering, respecting
+  the `CalculateOffsetLowGroupExtended` flag on Animal bodies (see
+  `AnimationDefinition.md` for the full action remap table).
+- Substituted into the existing `GetAnimationFrames` path; the atlas
+  uploads decoded pixels at the same point CC frames would.
+
+### Settings persistence
+
+- `tileart_mode` (int 0/1/2) in `settings.json` — survives restarts.
+- `use_ec_animations` (bool) — same.
+- `use_enhanced_art` legacy boolean is shim'd through for older
+  settings files.
+
+### Outstanding work
+
+- **EC animation playback speed** — characters animate "too fast" when
+  EC AMOU is active; likely the per-frame delay needs scaling by
+  `ec_frames.Length / cc_frames.Length` per (body, action), or the
+  8-byte mystery field at AMOU header `0x28..0x2F` encodes the timing.
+- **Chunked-mesh terrain renderer** — the big architectural item.
+  Right now EC-mode terrain falls through to CC's sprite-batched land
+  renderer (fully-opaque HD masters get bypassed via the
+  `IsFullyOpaqueDds` short-circuit). A proper port would add a second
+  render path matching EC's 32×32 mesh with world-position UVs.
+
 ## Files / where evidence lives
 
 - Full D3D9 trace: `C:\Users\konss\Desktop\UOSA.trace` (318 MB)

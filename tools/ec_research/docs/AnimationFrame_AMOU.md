@@ -140,6 +140,153 @@ Before recovering UOReader, the speculative layout had:
 - Located in `AnimationFrame1.uop` at
   `build/animationframe/000400/00.bin`.
 
+## Live-engine integration findings (CUO port)
+
+Below are post-port discoveries from wiring the decoder into ClassicUO
+(see `src/ClassicUO.Renderer/Animations/EcAnimation.cs` and
+`Animation.cs::TryBuildEcFrames`).
+
+### Direction stride: 5 dirs × N frames (NOT 10 × N)
+
+Empirically verified by playback: AMOU stores all directions
+concatenated, with `frames.Length / 5` frames per direction. We tested
+10 dirs × `frames.Length/10` first — it produced wrong facings on
+playback. So the layout matches CC's `MAX_DIRECTIONS = 5` convention
+(dirs 0..4 stored, mirrored to 5..7 at draw time).
+
+For body 400 idle (50 frames): 10 frames per direction.
+
+### Per-frame anchor must reference MAIN bbox
+
+The per-frame `(InitX, InitY)` bbox shifts between frames as the body
+animates (limbs moving, etc.). Anchoring each frame by its own
+`InitX` causes visible **vibration** — the figure's pivot point jumps
+between frames.
+
+Per UOReader's `AnimationFrames.cs:258-262`, each frame's content is
+blitted into a body-wide canvas of `MainBbox` dimensions at offset
+`(frame.InitX - main.InitX, frame.InitY - main.InitY)`. Every frame
+shares the same canvas size, so the body anchor stays stable across
+frames. Our CUO port builds canvas-sized pixel buffers and uses CC's
+`(CenterX, CenterY)` convention computed from the **main bbox**:
+
+```
+CenterX = mainCanvasW / 2
+CenterY = 0                          (body's natural floor sits at canvas bottom)
+mainCanvasW = mainEndX - mainInitX
+mainCanvasH = mainEndY - mainInitY
+```
+
+### Anti-aliased edges: encode as partial alpha
+
+UOReader's pixel decoder blends AA edge pixels against the *background
+color of the preview canvas* (PaleGreen) — a preview-rendering trick.
+When we ported that to render against the game world, edges came out
+muddy because we were blending against transparent black.
+
+Correct port: at decode time, for AA edge pixels (1..15 weight), keep
+the palette RGB intact and **encode the weight as partial alpha**
+(`alpha = w * 255 / 16`). The GPU composites them against the live
+scene at draw time. Solid run pixels keep `alpha = 255`.
+
+### Color: use SHADER_PARTIAL_HUED, not SHADER_NONE
+
+The AMOU palette stores **neutral / greyscale skin tones**. The
+character's body hue is applied at draw time via CC's
+partial-hue shader (pixels where `R == G == B` get tinted, others
+pass through). Bypassing the hue (`SHADER_NONE`) leaves the figure
+washed-out grey. `SHADER_PARTIAL_HUED` matches CC's behavior and
+produces correctly-skinned characters.
+
+### Action numbering: AMOU uses HighAnimationGroup universally
+
+This is the big one for non-human bodies.
+
+CC's `GetGroupForAnimation` returns action IDs in **per-body-type
+enums**: `PeopleAnimationGroup` for humans, `LowAnimationGroup` for
+animals, `HighAnimationGroup` for monsters. So CC's "idle action"
+is `People.Stand=4` for a human, `Low.Stand=2` for a cow,
+`High.Stand=1` for a monster.
+
+But AMOU files are stored per-body keyed by `{action:02}.bin` and
+the action numbers inside the file **always follow
+HighAnimationGroup numbering** regardless of the body's CC type.
+So body 216 (cow) action 2 in AMOU is **Die1** (High.Die1 = 2),
+not **Stand** (Low.Stand = 2).
+
+#### Symptom
+
+Cow plays the death animation when CC asks for idle — CC sends
+action 2, AMOU interprets it as Die1.
+
+#### Fix
+
+In `TryBuildEcFrames`, translate the CC action number from the body's
+effective group into High before the AMOU file lookup. Translation
+table for Low → High:
+
+| CC `LowAnimationGroup` action | AMOU action (High) |
+|---|---|
+| 0  Walk    | 0  Walk          |
+| 1  Run     | 0  Walk          |
+| 2  Stand   | 1  Stand         |
+| 3  Eat     | 7  Misc1         |
+| 5  Attack1 | 4  Attack1       |
+| 6  Attack2 | 5  Attack2       |
+| 7  Attack3 | 6  Attack3       |
+| 8  Die1    | 2  Die1          |
+| 9  Fidget1 | 17 Fidget1       |
+| 10 Fidget2 | 18 Fidget2       |
+| 11 LieDown | 14 Misc4         |
+| 12 Die2    | 3  Die2          |
+
+Verified visually for cow (body 216): AMOU `01.bin` = standing cow,
+`02.bin` = collapsing cow (death). My remap of CC's Low.Stand(2) →
+AMOU action 1 lands on idle, fixing the death-when-standing bug.
+
+#### Don't over-remap: respect the `CalculateOffsetLowGroupExtended` flag
+
+Some `Animal`-typed bodies have the `CalculateOffsetLowGroupExtended`
+flag (0x20 in `mobtypes.txt`). With that flag, CC switches the
+body's effective group from Low to **High** (or People, if combined
+with `CalculateOffsetByPeopleGroup`). These bodies pass High-group
+action numbers from CC already, so re-applying the Low → High remap
+would **double-translate**.
+
+In our CC install (`mobtypes.txt`), 21 Animal bodies have this flag:
+`5, 6, 23, 25, 27, 29, 34, 37, 52, 63, 64, 65, 81, 88, 97, 98, 99,
+100, 127, 133, 134`. Visually identified: eagles (5), small birds
+(6), bats (29), various dragons / wyverns (97, 127, 134), and a mix
+of cats / quadrupeds. The shared trait: they animate with monster-
+style action sets (Walk + Stand replaced by Fly etc.).
+
+Our port checks `AnimationFlags.CalculateOffsetLowGroupExtended` and
+skips the Low → High remap when set (unless `ByLowGroup` is also
+set, which keeps the body in Low).
+
+### Open mystery: 8 bytes at 0x28..0x2F
+
+Looking at body 400 across actions: bytes at `0x28..0x2A` are three
+small values usually within 2 of each other.
+
+| action | bytes 0x28..0x2A | total frames | guess |
+|---|---|---|---|
+| 0 (idle) | `03 02 03` | 50 | low values for slow anim |
+| 3 (run)  | `0b 0b 0b` | 50 | high values for fast cycle |
+| 26       | `0d 0d 0d` | 50 | also high |
+
+For body 216 (cow), idle action (= AMOU 01) starts with `02 02 02 00`.
+For body 401 most actions start with `00 00 00 00`.
+
+Values don't cleanly divide total-frames into directions or known
+durations. **Hypothesis (unverified)**: per-direction frame counts
+for a 3-bucket sub-anim layout (idle/walk/run base) used by the EC
+animation timing engine. **TBD** — confirmed by Ghidra would be a
+function reading bytes at amou+0x28 then dividing by direction.
+
+The last 4 bytes (0x2C..0x2F) are usually `00 00 00 01` with rare
+variants like `00 00 01 01` — looks like a per-action flags field.
+
 ## UOReader provenance
 
 UOReader 0.8.7 (2013) by Kons — released on the Mythic-era Ultima Online

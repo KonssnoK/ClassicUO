@@ -184,17 +184,27 @@ namespace ClassicUO.Assets
         {
             data = null;
             if (_file == null) return false;
-            if (_cache.TryGetValue(tileId, out data)) return data != null;
 
-            ulong hash = UOFileUop.CreateHash($"build/tileart/{tileId:D8}.bin");
+            // EC's tileart.uop is keyed by RAW item_id, not art_id. For
+            // statics, callers usually pass `graphic + 0x4000` (the CC art
+            // id); strip the offset before forming the lookup key. Both
+            // forms hash to DIFFERENT records in the UOP — the raw-id form
+            // has the actual sprite metadata (EcImage rect + LegacyImage
+            // rect + dx/dy padding), while the art-id form is a stub.
+            // Without this strip we'd silently read empty (0,0,0,0,0,0)
+            // EcImage on every static and fall back to legacy DDS.
+            int rawId = tileId >= 0x4000 ? tileId - 0x4000 : tileId;
+            if (_cache.TryGetValue(rawId, out data)) return data != null;
+
+            ulong hash = UOFileUop.CreateHash($"build/tileart/{rawId:D8}.bin");
             if (!_file.TryGetUOPData(hash, out UOFileIndex entry) || entry.Equals(UOFileIndex.Invalid))
             {
-                _cache[tileId] = null;
+                _cache[rawId] = null;
                 return false;
             }
 
             byte[] payload = ReadEntry(entry);
-            if (payload == null) { _cache[tileId] = null; return false; }
+            if (payload == null) { _cache[rawId] = null; return false; }
 
             try
             {
@@ -204,8 +214,8 @@ namespace ClassicUO.Assets
             }
             catch (Exception ex)
             {
-                Log.Warn($"EcTileArt: failed to parse id {tileId}: {ex.Message}");
-                _cache[tileId] = null;
+                Log.Warn($"EcTileArt: failed to parse id {rawId}: {ex.Message}");
+                _cache[rawId] = null;
                 return false;
             }
         }

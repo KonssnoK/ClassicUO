@@ -132,6 +132,16 @@ namespace ClassicUO.Renderer.Animations
                 return Array.Empty<EcAnimFrame>();
 
             int total       = BitConverter.ToInt32(data, 0x08);
+            // Global (body-wide) bbox at 0x10..0x17 — defines the canvas that
+            // each frame's content sits within. Per UOReader, each frame's
+            // pixel content is placed at (frame.InitX - main.InitX,
+            // frame.InitY - main.InitY) inside this canvas, so the body
+            // anchor is stable across frames. Using per-frame InitX directly
+            // (without referring to main) produces visible vibration.
+            short mainInitX = BitConverter.ToInt16(data, 0x10);
+            short mainInitY = BitConverter.ToInt16(data, 0x12);
+            short mainEndX  = BitConverter.ToInt16(data, 0x14);
+            short mainEndY  = BitConverter.ToInt16(data, 0x16);
             int colourCount = BitConverter.ToInt32(data, 0x18);
             int colourOff   = BitConverter.ToInt32(data, 0x1C);
             int frameCount  = BitConverter.ToInt32(data, 0x20);
@@ -179,8 +189,6 @@ namespace ClassicUO.Renderer.Animations
                 frames[i].InitY = iy;
                 frames[i].Width = width;
                 frames[i].Height = height;
-                frames[i].CenterX = (short)(-ix);
-                frames[i].CenterY = (short)(-(iy + height));
                 pixelStarts[i] = frameOff + i * 16 + rel;
             }
 
@@ -203,14 +211,49 @@ namespace ClassicUO.Renderer.Animations
                 if (!nextAfter.TryGetValue(start, out int end)) end = total;
                 if (start < 0 || end > data.Length || start > end) continue;
 
-                uint[] pixels = DecodeFrame(data, start, end, frames[i].Width, frames[i].Height, palette);
-                if (pixels == null) continue;
-                // AMOU sprites are ~1.5× the CC pixel pitch (body 400 idle
-                // is 30×64, CC equivalent is ~20×42). Downsample 2/3 so the
-                // EC frames display at the same world-pixel size as CC and
-                // the CenterX/Y anchor math (in CC pixels) lines up.
-                Downsample2of3(ref pixels, ref frames[i]);
-                frames[i].Pixels = pixels;
+                uint[] framePixels = DecodeFrame(data, start, end, frames[i].Width, frames[i].Height, palette);
+                if (framePixels == null) continue;
+
+                // Place this frame's content inside the body-wide canvas
+                // at (frame.InitX - main.InitX, frame.InitY - main.InitY).
+                // The result has a stable size (mainCanvas) across all
+                // frames; CenterX/Y reference the main bbox so the body
+                // anchor doesn't shift between frames (kills vibration).
+                int mainCanvasW = mainEndX - mainInitX;
+                int mainCanvasH = mainEndY - mainInitY;
+                if (mainCanvasW <= 0 || mainCanvasH <= 0)
+                {
+                    // Degenerate main bbox — fall back to frame-local canvas.
+                    frames[i].Pixels = framePixels;
+                    frames[i].CenterX = (short)(-frames[i].InitX);
+                    frames[i].CenterY = (short)(-(frames[i].InitY + frames[i].Height));
+                    continue;
+                }
+                int fx = frames[i].InitX - mainInitX;
+                int fy = frames[i].InitY - mainInitY;
+                uint[] canvas = new uint[mainCanvasW * mainCanvasH];
+                int copyW = System.Math.Min(frames[i].Width,  mainCanvasW - fx);
+                int copyH = System.Math.Min(frames[i].Height, mainCanvasH - fy);
+                for (int row = 0; row < copyH; row++)
+                {
+                    int dstRow = (fy + row) * mainCanvasW + fx;
+                    int srcRow = row * frames[i].Width;
+                    System.Array.Copy(framePixels, srcRow, canvas, dstRow, copyW);
+                }
+                frames[i].Pixels = canvas;
+                frames[i].Width  = mainCanvasW;
+                frames[i].Height = mainCanvasH;
+                // CC anchor convention: screen_x = pos - CenterX,
+                //                       screen_y = pos - (H + CenterY).
+                // Body anchor at body-local (mainCenterX, mainEndY) so the
+                // body's bottom-center sits on the world cell.
+                // With every frame sharing the same canvas:
+                //   body anchor in body-local = (mainCenterX, mainEndY)
+                //   body anchor in canvas     = (mainCanvasW / 2, mainCanvasH)
+                // → CC bottom-center anchor lands exactly on the body's
+                //   natural foot/anchor point, regardless of frame.
+                frames[i].CenterX = (short)(mainCanvasW / 2);
+                frames[i].CenterY = 0;
             }
 
             return frames;
@@ -238,84 +281,44 @@ namespace ClassicUO.Renderer.Animations
                 int hi = b2 >> 4;
                 int lo = b2 & 0x0F;
 
+                // AA edge pixels: encode the blend weight as the ALPHA
+                // channel so they composite correctly against whatever
+                // background the sprite sits over at draw time.
+                // UOReader pre-blends against its preview canvas — that
+                // produces wrong colors when the sprite renders over the
+                // game world. Partial-alpha lets the GPU blend live.
                 if (hi > 0)
                 {
                     if (off >= end) break;
                     byte idx = data[off++];
-                    uint baseCol = palette[idx];
-                    uint prior = pos < total ? pixels[pos] : 0u;
-                    pixels[pos] = Blend(baseCol, prior, hi);
-                    pos++;
+                    pixels[pos++] = WithAlpha(palette[idx], hi);
                 }
 
                 for (int k = 0; k < nSolid && pos < total; k++)
                 {
                     if (off >= end) break;
                     byte idx = data[off++];
-                    pixels[pos++] = palette[idx];
+                    pixels[pos++] = palette[idx];   // already alpha = 255
                 }
 
                 if (lo > 0 && pos < total)
                 {
                     if (off >= end) break;
                     byte idx = data[off++];
-                    uint baseCol = palette[idx];
-                    uint prior = pixels[pos];
-                    pixels[pos] = Blend(baseCol, prior, lo);
-                    pos++;
+                    pixels[pos++] = WithAlpha(palette[idx], lo);
                 }
             }
 
             return pixels;
         }
 
-        // Nearest-neighbor 2/3 downsample of a frame's pixel buffer + bbox
-        // metadata. New size = floor(old * 2 / 3). Center / Init coords scale
-        // by the same factor so the anchor stays consistent post-scale.
-        private static void Downsample2of3(ref uint[] pixels, ref EcAnimFrame f)
+        // Set alpha to (w * 255 / 16) — maps the 4-bit AA weight to a
+        // proper alpha channel; w=15 → 239, w=8 → 127, w=1 → 15.
+        // Leaves RGB intact so the GPU can blend against whatever's below.
+        private static uint WithAlpha(uint rgba, int w)
         {
-            int srcW = f.Width, srcH = f.Height;
-            int dstW = srcW * 2 / 3;
-            int dstH = srcH * 2 / 3;
-            if (dstW <= 0 || dstH <= 0 || (dstW == srcW && dstH == srcH))
-                return;
-
-            uint[] dst = new uint[dstW * dstH];
-            for (int y = 0; y < dstH; y++)
-            {
-                int sy = y * srcH / dstH;
-                int srcRow = sy * srcW;
-                int dstRow = y * dstW;
-                for (int x = 0; x < dstW; x++)
-                {
-                    int sx = x * srcW / dstW;
-                    dst[dstRow + x] = pixels[srcRow + sx];
-                }
-            }
-            pixels = dst;
-            f.Width = dstW;
-            f.Height = dstH;
-            f.InitX = (short)(f.InitX * 2 / 3);
-            f.InitY = (short)(f.InitY * 2 / 3);
-            f.CenterX = (short)(-f.InitX);
-            f.CenterY = (short)(-(f.InitY + dstH));
-        }
-
-        // 4-bit per-channel lerp: out = base*w/16 + prior*(16-w)/16  for RGB,
-        // alpha forced to 255 on output. Matches UOReader's nibble blender.
-        private static uint Blend(uint baseCol, uint prior, int w)
-        {
-            uint br = baseCol & 0xFF;
-            uint bg = (baseCol >> 8) & 0xFF;
-            uint bb = (baseCol >> 16) & 0xFF;
-            uint pr = prior & 0xFF;
-            uint pg = (prior >> 8) & 0xFF;
-            uint pb = (prior >> 16) & 0xFF;
-            int iw = 16 - w;
-            uint r = (br * (uint)w + pr * (uint)iw) >> 4;
-            uint g = (bg * (uint)w + pg * (uint)iw) >> 4;
-            uint b = (bb * (uint)w + pb * (uint)iw) >> 4;
-            return 0xFF000000u | (b << 16) | (g << 8) | r;
+            uint a = (uint)((w * 255) / 16);
+            return (rgba & 0x00FFFFFFu) | (a << 24);
         }
 
         public void Dispose()

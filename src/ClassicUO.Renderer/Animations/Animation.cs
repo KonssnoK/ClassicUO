@@ -443,13 +443,41 @@ namespace ClassicUO.Renderer.Animations
         /// has no entry for (body, action) or isn't enabled.
         ///
         /// AMOU stores all directions concatenated in one per-action file
-        /// (e.g. body 400 idle = 50 frames = 5 dirs × 10 frames). We slice
-        /// frames[dir * fpd .. (dir+1) * fpd] for the requested direction.
+        /// (body 400 idle: 50 total frames = 5 dirs × 10 fpd, matching CC's
+        /// MAX_DIRECTIONS = 5). Tested 10 dirs × 5 fpd — produced wrong
+        /// facings, so the 5-dir layout is correct.
         /// </summary>
         private AnimationsLoader.FrameInfo[] TryBuildEcFrames(ushort body, byte action, byte dir)
         {
             if (Ec == null || !Ec.IsEnabled) return null;
-            if (!Ec.TryGetFrames(body, action, out var src)) return null;
+
+            // CC uses per-body-type action enums (LowAnimationGroup for animals,
+            // PeopleAnimationGroup for humans, HighAnimationGroup for monsters).
+            // AMOU stores per-body action files under HighAnimationGroup numbering
+            // (regardless of body type), so for Animal/SeaMonster bodies whose
+            // *effective* group is Low (the default) we translate Low → High.
+            //   cow (body 216, no Extended flag): CC asks for Low.Stand=2,
+            //     AMOU's 02.bin is High.Die1 → remap 2 → 1 (visually verified).
+            // Animal bodies with the CalculateOffsetLowGroupExtended flag (eagle,
+            // dragons, etc.) already pass High-group action numbers from CC, so
+            // we MUST NOT remap them. Same for the Extended | ByPeopleGroup case
+            // (those use People numbering — also passes through unchanged).
+            byte amouAction = action;
+            var type = GetAnimType(body);
+            if (type == AnimationGroupsType.Animal || type == AnimationGroupsType.SeaMonster)
+            {
+                var flags = GetAnimFlags(body);
+                bool extended = (flags & AnimationFlags.CalculateOffsetLowGroupExtended) != 0;
+                bool byLow = (flags & AnimationFlags.CalculateOffsetByLowGroup) != 0;
+                bool byPeople = (flags & AnimationFlags.CalculateOffsetByPeopleGroup) != 0;
+                // Skip remap unless the body's effective group is Low (default
+                // path, or Extended explicitly directed to Low via ByLowGroup).
+                bool effectiveLow = !extended || byLow;
+                if (effectiveLow && !byPeople)
+                    amouAction = LowToHighAction(action);
+            }
+
+            if (!Ec.TryGetFrames(body, amouAction, out var src)) return null;
             if (src == null || src.Length == 0) return null;
 
             int dirCount = AnimationsLoader.MAX_DIRECTIONS;
@@ -471,6 +499,41 @@ namespace ClassicUO.Renderer.Animations
                 arr[i].Pixels = ef.Pixels;
             }
             return arr;
+        }
+
+        /// <summary>
+        /// Translate a CC LowAnimationGroup action number into the
+        /// HighAnimationGroup number AMOU uses for animal/sea-monster bodies.
+        /// Empirically verified: cow (body 216) at AMOU action 2 plays Die1,
+        /// matching High.Die1 = 2 (not Low.Stand = 2).
+        /// </summary>
+        private static byte LowToHighAction(byte low)
+        {
+            // Low enum:  Walk=0, Run=1, Stand=2, Eat=3, Unknown=4, Attack1=5,
+            //            Attack2=6, Attack3=7, Die1=8, Fidget1=9, Fidget2=10,
+            //            LieDown=11, Die2=12
+            // High enum: Walk=0, Stand=1, Die1=2, Die2=3, Attack1=4, Attack2=5,
+            //            Attack3=6, Misc1=7, Misc2=8, Misc3=9, Stumble=10,
+            //            SlapGround=11, Cast=12, GetHit1=13, Misc4=14,
+            //            GetHit2=15, GetHit3=16, Fidget1=17, Fidget2=18,
+            //            Fly=19, Land=20, DieInFlight=21
+            switch (low)
+            {
+                case 0:  return 0;   // Walk → Walk
+                case 1:  return 0;   // Run → Walk (High has no Run)
+                case 2:  return 1;   // Stand → Stand  ← fixes cow idle
+                case 3:  return 7;   // Eat → Misc1
+                case 4:  return 7;   // Unknown → Misc1
+                case 5:  return 4;   // Attack1 → Attack1
+                case 6:  return 5;   // Attack2 → Attack2
+                case 7:  return 6;   // Attack3 → Attack3
+                case 8:  return 2;   // Die1 → Die1
+                case 9:  return 17;  // Fidget1 → Fidget1
+                case 10: return 18;  // Fidget2 → Fidget2
+                case 11: return 14;  // LieDown → Misc4
+                case 12: return 3;   // Die2 → Die2
+                default: return low;
+            }
         }
 
         public void UpdateAnimationTable(BodyConvFlags flags)

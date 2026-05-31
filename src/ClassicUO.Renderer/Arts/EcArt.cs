@@ -118,7 +118,12 @@ namespace ClassicUO.Renderer.Arts
             // whole multi-cell sprite; this absorbed cell should render
             // nothing. Without this check, tile 5650 would render the
             // top-left 44×44 of 5649's full banner, duplicating content.
-            if (!IsEnabled || _tileart == null || _arts == null) return false;
+            //
+            // ONLY applies in UopKR (HD-master) mode. UopEC mode pulls each
+            // tile's own legacy DDS independently — no master texture, no
+            // duplication risk, so absorbing would just hide valid tiles.
+            if (_mode != EcArtMode.UopKR) return false;
+            if (_tileart == null || _arts == null) return false;
             if (_arts.TryGetHdByArtId(artId, out _)) return false;  // own HD
             if (!_tileart.TryGet(artId, out var meta) || meta == null) return false;
             if (meta.EcImage.IsPopulated) return false;             // crop specified
@@ -217,6 +222,11 @@ namespace ClassicUO.Renderer.Arts
         /// obvious which tiles in the world actually have EC sprites.
         /// </summary>
         public bool DiagnosticMode { get; set; }
+        /// <summary>
+        /// When on, tint every EC-rendered static red so the user can see
+        /// exactly which tiles are using EC art and where each lands.
+        /// </summary>
+        public bool OutlineMode { get; set; }
 
         public EcArt(EcArtLoader arts, EcTileArtLoader tileart, GraphicsDevice device)
         {
@@ -398,7 +408,8 @@ namespace ClassicUO.Renderer.Arts
 
             if (fromHd)
             {
-                if (meta != null && meta.EcImage.IsPopulated)
+                if (meta != null && meta.EcImage.IsPopulated && meta.LegacyImage.IsPopulated
+                    && meta.EcImage.X1 > 0 && meta.EcImage.Y1 > 0)
                 {
                     // KR HD with explicit EcImage: sub-rect of the master,
                     // +1 on X1/Y1 for exclusive bounds. Per UOReader, the
@@ -415,57 +426,60 @@ namespace ClassicUO.Renderer.Arts
                     x1 = System.Math.Clamp(x1, x0 + 1, tex.Width);
                     y1 = System.Math.Clamp(y1, y0 + 1, tex.Height);
                     srcX = x0; srcY = y0; srcW = x1 - x0; srcH = y1 - y0;
-                    const int CELL = 44;
-                    if (srcW > CELL || srcH > CELL)
-                    {
-                        float s = System.Math.Min((float)CELL / srcW, (float)CELL / srcH);
-                        scale = new Vector2(s, s);
-                    }
 
+                    // UNIFORM HD→CC scale: the HD master texture pixel pitch
+                    // is 1.5× CC's (per the EC binary constant DAT_00c853b4 =
+                    // 1.5), so the inverse is 2/3. A per-axis ratio derived
+                    // from LegacyImage/EcImage dimensions causes aspect-ratio
+                    // distortion because EC and CC show DIFFERENT content
+                    // extents per tile (EC walls extend taller; banners are
+                    // wider in HD), not different pixel pitch.
+                    const float HD_TO_CC = 1f / 1.5f;
+                    scale = new Vector2(HD_TO_CC, HD_TO_CC);
+
+                    // dx/dy from EcImage — must be applied to position
+                    // hanging items (signs, banners, ceiling fixtures)
+                    // above the cell floor. Tile 2967 (wooden signpost)
+                    // has dy=-110: without applying it the sign falls to
+                    // floor level instead of hanging at sign height.
+                    // Walls/statues with small dx values will look "a bit
+                    // to the right" of where CC would put them — that's
+                    // EC's actual intended placement (the HD sprite content
+                    // is shifted within its canvas per the dx encoding).
                     int dx = meta.EcImage.PixelsXOffset;
                     int dy = meta.EcImage.PixelsYOffset;
-                    // dx/dy are in EcImage source pixels — convert to
-                    // display pixels by the same scale we apply to W/H.
                     int unscaledShiftX = System.Math.Max(dx, 0) - System.Math.Abs(dx) / 2;
                     int unscaledShiftY = System.Math.Max(dy, 0) - System.Math.Abs(dy);
-                    anchorX = (int)(unscaledShiftX * scale.X);
-                    anchorY = (int)(unscaledShiftY * scale.Y);
+                    anchorX = (int)(unscaledShiftX * HD_TO_CC);
+                    anchorY = (int)(unscaledShiftY * HD_TO_CC);
                 }
                 else
                 {
-                    // EcImage unpopulated — without an explicit crop+offset
-                    // we have no reliable way to anchor the HD master in
-                    // world space. Fall back to legacy art (tileartlegacy)
-                    // rather than guessing via alpha-trim + CC-bbox alignment.
-                    tex.Dispose();
-                    if (!_arts.TryGetLegacyByArtId(artId, out byte[] legacyDds))
-                    {
-                        _missing.Add(artId);
-                        MissDdsCount++;
-                        return false;
-                    }
-                    using var ms2 = new MemoryStream(legacyDds, writable: false);
-                    tex = Texture2D.DDSFromStreamEXT(_device, ms2);
-                    // Now treat exactly like the EC legacy-only path: crop
-                    // by LegacyImage rect + apply signed dx/dy shift.
-                    fromHd = false;
-                    srcX = 0; srcY = 0; srcW = tex.Width; srcH = tex.Height;
+                    // EcImage unpopulated (or degenerate with X1/Y1 = 0).
+                    // The tile owns an HD master but doesn't carry a crop
+                    // rect — typical for standalone walls/doors whose HD
+                    // master is just this one tile's content. Alpha-trim
+                    // the HD canvas to find visible bbox, then scale it to
+                    // CC pixel pitch using the LegacyImage W/H ratio when
+                    // available, falling back to HD_TO_CC = 2/3.
+                    (srcX, srcY, srcW, srcH) = ComputeVisibleBoundsFromDds(dds, tex.Width, tex.Height);
                     if (meta != null && meta.LegacyImage.IsPopulated)
                     {
-                        var li = meta.LegacyImage;
-                        int lx0 = System.Math.Clamp(li.X0, 0, tex.Width);
-                        int ly0 = System.Math.Clamp(li.Y0, 0, tex.Height);
-                        int lx1 = System.Math.Clamp(li.X1, lx0 + 1, tex.Width);
-                        int ly1 = System.Math.Clamp(li.Y1, ly0 + 1, tex.Height);
-                        srcX = lx0; srcY = ly0; srcW = lx1 - lx0; srcH = ly1 - ly0;
-                        int lDx = li.PixelsXOffset;
-                        int lDy = li.PixelsYOffset;
-                        anchorX = System.Math.Max(lDx, 0) - System.Math.Abs(lDx) / 2;
-                        anchorY = System.Math.Max(lDy, 0) - System.Math.Abs(lDy);
+                        int legW = meta.LegacyImage.X1 - meta.LegacyImage.X0;
+                        int legH = meta.LegacyImage.Y1 - meta.LegacyImage.Y0;
+                        float sx = legW > 0 && srcW > 0 ? (float)legW / srcW : 2f / 3f;
+                        float sy = legH > 0 && srcH > 0 ? (float)legH / srcH : 2f / 3f;
+                        scale = new Vector2(sx, sy);
                     }
-                    // mask preprocessing below operates on `dds`; replace
-                    // the reference so it uses the legacy DDS bytes.
-                    dds = legacyDds;
+                    else
+                    {
+                        scale = new Vector2(2f / 3f, 2f / 3f);
+                    }
+                    // CC-bbox alignment at draw time: the HD content's
+                    // visible bbox is positioned where CC content's bbox
+                    // would land. The renderer reads this via a marker
+                    // (FromHd + meta.LegacyImage tells the renderer to
+                    // align by CC content bbox, not by canvas bottom-center).
                 }
             }
             // Legacy: kept on full-canvas src. FUN_0051af20 reads
@@ -493,9 +507,19 @@ namespace ClassicUO.Renderer.Arts
 
         /// <summary>
         /// EC-mode load: pull `build/tileartlegacy/{id}.dds` (the flat 2D
-        /// sprite the actual Enhanced Client uses for statics), apply the
-        /// tile record's LegacyImage crop to strip POT padding, draw bottom-
-        /// center on the cell. No HD master, no hue mask.
+        /// sprite EC uses for statics) and return it for rendering with
+        /// CC's standard anchor math. The renderer uses the CC art's
+        /// canvas dimensions (artInfo.UV) — NOT the EC DDS dimensions —
+        /// so the POT-padded DDS slots into the same world-position as
+        /// CC's equivalent art would. Content lives at top-left of the
+        /// DDS; transparent POT padding is invisible.
+        ///
+        /// We tried using LegacyImage as a crop rect + dx/dy padding here
+        /// (matches UOReader's preview-rendering math), but it diverges
+        /// from CC anchor for tiles with content-in-middle layouts (e.g.
+        /// roof tile 1475 with elevation padding). The simpler "draw full
+        /// DDS at CC anchor" path matches CC for the vast majority of
+        /// statics — same approach as commit 5e0475334.
         /// </summary>
         private bool TryGetLegacyOnly(int artId, out EcRenderArt art)
         {
@@ -520,54 +544,14 @@ namespace ClassicUO.Renderer.Arts
                 return false;
             }
 
-            // Legacy DDS files are POT-padded (64×64, 64×128, etc.). The
-            // tileart record's LegacyImage rect (0x65) gives the actual
-            // content bbox within the canvas — without it we'd blit the
-            // padding too, throwing off bottom-center anchor math.
-            //
-            // The 5th/6th ints in LegacyImage carry the same signed canvas-
-            // padding semantics as EcImage (verified from UOReader's
-            // TileartControlNew.cs, which uses m_imgoff2D[4]/[5] for the
-            // legacy path with identical canvas+abs(d)/max(d,0) math). We
-            // collapse the padding into a single (shiftX, shiftY) offset
-            // applied on top of bottom-center anchor:
-            //
-            //   canvas_W = src_W + |dx|, content at x = max(dx, 0)
-            //   world anchor sits at canvas_W / 2 (bottom-center)
-            //   shift_x = max(dx, 0) - |dx| / 2   (= dx/2 with sign, rounded)
-            //   canvas_H = src_H + |dy|, content at y = max(dy, 0)
-            //   world anchor sits at canvas_H (bottom)
-            //   shift_y = max(dy, 0) - |dy|       (= min(dy, 0); only
-            //                                       negative dy shifts up)
-            int srcX = 0, srcY = 0;
-            int srcW = tex.Width, srcH = tex.Height;
-            int shiftX = 0, shiftY = 0;
-            if (_tileart != null
-                && _tileart.TryGet(artId, out EcTileArtData meta)
-                && meta != null
-                && meta.LegacyImage.IsPopulated)
-            {
-                var li = meta.LegacyImage;
-                int x0 = System.Math.Clamp(li.X0, 0, tex.Width);
-                int y0 = System.Math.Clamp(li.Y0, 0, tex.Height);
-                int x1 = System.Math.Clamp(li.X1, x0 + 1, tex.Width);
-                int y1 = System.Math.Clamp(li.Y1, y0 + 1, tex.Height);
-                srcX = x0; srcY = y0; srcW = x1 - x0; srcH = y1 - y0;
-
-                int dx = li.PixelsXOffset;
-                int dy = li.PixelsYOffset;
-                shiftX = System.Math.Max(dx, 0) - System.Math.Abs(dx) / 2;
-                shiftY = System.Math.Max(dy, 0) - System.Math.Abs(dy);
-            }
-
             art = new EcRenderArt
             {
                 Texture = tex,
-                Source = new Rectangle(srcX, srcY, srcW, srcH),
-                Width = srcW,
-                Height = srcH,
-                AnchorX = shiftX,
-                AnchorY = shiftY,
+                Source = new Rectangle(0, 0, tex.Width, tex.Height),
+                Width = tex.Width,
+                Height = tex.Height,
+                AnchorX = 0,
+                AnchorY = 0,
                 FromHd = false,
                 Scale = Vector2.One,
             };

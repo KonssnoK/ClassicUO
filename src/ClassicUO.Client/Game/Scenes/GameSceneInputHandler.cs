@@ -1138,6 +1138,29 @@ namespace ClassicUO.Game.Scenes
                 _world.TargetManager.CancelTarget();
             }
 
+            // F9: toggle EC outline/tint debug — tints every EC-rendered
+            // static red so the user can see exactly which tiles use EC art
+            // and where each one lands.
+            if (keycode == SDL.SDL_Keycode.SDLK_F9 && !e.repeat)
+            {
+                var ecArts = Client.Game.UO.EcArts;
+                if (ecArts != null && ecArts.CanEnable)
+                {
+                    ecArts.OutlineMode = !ecArts.OutlineMode;
+                    _world.Map?.MarkAllChunksDirty();
+                    ClassicUO.Utility.Logging.Log.Info($"Tileart outline: {(ecArts.OutlineMode ? "ON" : "off")}");
+                    _world.MessageManager?.HandleMessage(
+                        null,
+                        $"Tileart outline: {(ecArts.OutlineMode ? "ON (shadow silhouettes on EC/KR tiles)" : "off")}",
+                        "System",
+                        0x35,
+                        Game.Data.MessageType.System,
+                        3,
+                        Game.Data.TextType.SYSTEM);
+                }
+                return;
+            }
+
             // F10: toggle EC AMOU animations vs classic anim.mul/UOP.
             if (keycode == SDL.SDL_Keycode.SDLK_F10 && !e.repeat)
             {
