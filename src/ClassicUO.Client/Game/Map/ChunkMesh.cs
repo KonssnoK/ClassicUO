@@ -107,6 +107,21 @@ namespace ClassicUO.Game.Map
 
         public bool IsDirty = true;
 
+        // Per-step depth nudge for co-planar same-PriorityZ statics so the
+        // depth buffer orders them deterministically across all art modes
+        // (MUL shared-atlas slot order vs EC/KR per-texture bucket order).
+        //
+        // The ortho projection spans short.MinValue..short.MaxValue (65536)
+        // over a 24-bit depth buffer, so one depth unit ~= 65536/2^24 ~=
+        // 0.0039. A PriorityZ step is 0.01 (~2.5 units), so there is room for
+        // exactly ONE reliable sub-step in the middle of a band: ~0.005 sits
+        // ~1.3 units above the floor below and ~1.3 units below the next
+        // PriorityZ band above. A smaller value (e.g. 0.002) rounds away to
+        // nothing; a larger one collides with the neighbouring band. Hence
+        // a single capped step rather than a fine gradient.
+        private const float COPLANAR_DEPTH_STEP = 0.005f;
+        private const int COPLANAR_DEPTH_MAX_STEPS = 1;
+
         private bool _animatedWaterEffect;
         private TextureBucketTracker _landBuckets = new(16);
         private TextureBucketTracker _staticsBuckets = new(32);
@@ -174,8 +189,33 @@ namespace ClassicUO.Game.Map
             {
                 for (int y = 0; y < 8; y++)
                 {
+                    // Co-planar tie-break: statics with identical PriorityZ (a
+                    // carpet on a floor — both Background+Surface at the same Z)
+                    // have identical render depth and z-fight. MUL resolves this
+                    // by shared-atlas draw order, but EC/KR give each tile its
+                    // own texture bucket and the GPU draws buckets in creation
+                    // order, so the winner depends on which graphic first
+                    // appeared in the chunk (fragile, varies by floor graphic).
+                    // The list is PriorityZ-sorted and AddGameObject places the
+                    // earlier-in-file static LAST in an equal-PriorityZ run (=
+                    // meant to be on top), so a small increasing depth nudge per
+                    // step makes the depth buffer order them the same way in
+                    // every mode.
+                    int tiePriorityZ = int.MinValue;
+                    int tieStep = 0;
+
                     for (var obj = chunk.GetHeadObject(x, y); obj != null; obj = obj.TNext)
                     {
+                        if (obj.PriorityZ == tiePriorityZ)
+                            tieStep++;
+                        else
+                        {
+                            tiePriorityZ = obj.PriorityZ;
+                            tieStep = 0;
+                        }
+
+                        float depthBias = Math.Min(tieStep, COPLANAR_DEPTH_MAX_STEPS) * COPLANAR_DEPTH_STEP;
+
                         switch (obj)
                         {
                             case GameObjects.Land land:
@@ -183,11 +223,11 @@ namespace ClassicUO.Game.Map
                                 break;
 
                             case Static staticObj:
-                                TryAddStatic(staticObj);
+                                TryAddStatic(staticObj, depthBias);
                                 break;
 
                             case Multi multi:
-                                TryAddMulti(multi);
+                                TryAddMulti(multi, depthBias);
                                 break;
                         }
                     }
@@ -438,15 +478,15 @@ namespace ClassicUO.Game.Map
             return false;
         }
 
-        private void TryAddStatic(Static staticObj)
+        private void TryAddStatic(Static staticObj, float depthBias)
         {
             if (!staticObj.AllowedToDraw || staticObj.IsDestroyed)
                 return;
 
-            TryAddStaticLike(staticObj, ref staticObj.ItemData, staticObj.Graphic, staticObj.Hue);
+            TryAddStaticLike(staticObj, ref staticObj.ItemData, staticObj.Graphic, staticObj.Hue, depthBias);
         }
 
-        private void TryAddMulti(Multi multi)
+        private void TryAddMulti(Multi multi, float depthBias)
         {
             if (!multi.AllowedToDraw || multi.IsDestroyed)
                 return;
@@ -454,23 +494,29 @@ namespace ClassicUO.Game.Map
             if (multi.State != 0)
                 return;
 
-            TryAddStaticLike(multi, ref multi.ItemData, multi.Graphic, multi.Hue);
+            TryAddStaticLike(multi, ref multi.ItemData, multi.Graphic, multi.Hue, depthBias);
         }
 
-        private void TryAddStaticLike(GameObject obj, ref StaticTiles itemData, ushort graphic, ushort hue)
+        private void TryAddStaticLike(GameObject obj, ref StaticTiles itemData, ushort graphic, ushort hue, float depthBias)
         {
             if (IsStaticExcludedFromMesh(graphic, ref itemData))
                 return;
 
             Vector3 hueVec = ShaderHueTranslator.GetHueVector(hue, itemData.IsPartialHue, 1f);
 
-            float depth = obj.CalculateDepthZ() + 0.5f;
+            float depth = obj.CalculateDepthZ() + 0.5f + depthBias;
             int baseX = (obj.X - obj.Y) * 22 - 22;
             int baseY = (obj.X + obj.Y) * 22 - (obj.Z << 2) - 22;
 
             ref readonly var artInfo = ref Client.Game.UO.Arts.GetArt(graphic);
-            if (artInfo.Texture == null)
-                return;
+            // NOTE: do NOT early-return on a null CC texture here. Pass 1
+            // (CountStaticLike) decides EC-vs-CC *before* it ever looks at the
+            // CC art, so a tile with EC art but no/empty CC art is counted in
+            // the EC bucket. If we bailed here we'd skip writing that same tile
+            // in Pass 2, desyncing the bucket index stream (missing/garbled
+            // statics in EC mode). The null-CC guard is applied below, only on
+            // the CC fall-through path. Keep this branch ordering identical to
+            // CountStaticLike.
 
             // EC fast path: per-tile DDS available. Anchor with CC's canvas
             // dimensions (EC just expanded the canvas; sprite content sits at
@@ -589,6 +635,12 @@ namespace ClassicUO.Game.Map
                     return;
                 }   // close 'else' for Surface-tile bypass
             }
+
+            // CC fall-through: now (and only now) the null-CC guard applies.
+            // Mirrors CountStaticLike, which only reaches the CC bucket after
+            // the EC branch fails.
+            if (artInfo.Texture == null)
+                return;
 
             ref var artIndex = ref Client.Game.UO.FileManager.Arts.File.GetValidRefEntry(graphic + 0x4000);
             artIndex.Width = (short)((artInfo.UV.Width >> 1) - 22);
